@@ -1,0 +1,3 @@
+# Test database configuration for integration tests
+type: "sqlite"
+dsn: ":memory:"  # In-memory SQLite database for testing

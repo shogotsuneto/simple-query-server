@@ -1,0 +1,45 @@
+# Example queries configuration
+# This file defines the available queries and their parameters
+
+queries:
+  # Get a user by ID
+  get_user_by_id:
+    sql: "SELECT id, name, email FROM users WHERE id = :id"
+    params:
+      - name: id
+        type: int
+
+  # Search users by name pattern
+  search_users:
+    sql: "SELECT id, name FROM users WHERE name LIKE :name"
+    params:
+      - name: name
+        type: string
+
+  # Get user with additional info
+  get_user_details:
+    sql: "SELECT u.id, u.name, u.email, p.bio FROM users u LEFT JOIN profiles p ON u.id = p.user_id WHERE u.id = :user_id"
+    params:
+      - name: user_id
+        type: int
+
+  # List users with pagination
+  list_users:
+    sql: "SELECT id, name, email FROM users ORDER BY name LIMIT :limit OFFSET :offset"
+    params:
+      - name: limit
+        type: int
+      - name: offset
+        type: int
+
+  # Get user count by status
+  count_users_by_status:
+    sql: "SELECT status, COUNT(*) as count FROM users WHERE status = :status GROUP BY status"
+    params:
+      - name: status
+        type: string
+
+  # Simple query with no parameters
+  get_all_active_users:
+    sql: "SELECT id, name, email FROM users WHERE active = true ORDER BY name"
+    params: []

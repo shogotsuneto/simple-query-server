@@ -1,0 +1,24 @@
+# Example database configuration
+# This file defines the database connection settings
+
+type: "postgres"  # Supported types: postgres, mysql, sqlite
+dsn: "postgres://username:password@localhost:5432/database_name?sslmode=disable"
+
+# Optional credentials (can be used instead of embedding in DSN)
+credentials:
+  username: "your_username"
+  password: "your_password"
+  host: "localhost"
+  port: "5432"
+  database: "your_database"
+  sslmode: "disable"
+
+# Alternative examples:
+#
+# For MySQL:
+# type: "mysql"
+# dsn: "username:password@tcp(localhost:3306)/database_name"
+#
+# For SQLite:
+# type: "sqlite"
+# dsn: "./data.db"
