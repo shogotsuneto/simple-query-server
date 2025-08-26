@@ -27,56 +27,72 @@ The `simple-query-server` is a lightweight Go HTTP server that exposes database 
 - Go 1.18 or later is required (Go 1.24.6 confirmed working)
 - No additional dependencies beyond what's in go.mod
 
+### Makefile Commands
+A comprehensive Makefile is available with convenient shortcuts for all development tasks. Run `make help` to see all available commands organized by category:
+- **Development:** deps, clean-deps, build, clean, vet, fmt, fmt-check, test, all
+- **Running:** run, run-test, run-help  
+- **API Testing:** health, queries, api-test
+
+Use make commands when possible as they provide consistent, validated workflows.
+
 ### Essential Commands
 
 **Download dependencies:**
 ```bash
-go mod download
+make deps
+# OR: go mod download
 ```
 - Takes <1 second - use default timeout
 
 **Clean dependencies:**
 ```bash
-go mod tidy
+make clean-deps
+# OR: go mod tidy
 ```  
 - Takes <1 second - use default timeout
 
 **Clear build cache (for testing clean builds):**
 ```bash
-go clean -cache -modcache
+make clean-cache
+# OR: go clean -cache -modcache
 ```
 - Takes <1 second - use default timeout
 - Forces next build to download all dependencies
 
 **Build the binary:**
 ```bash
-go build -o server ./cmd/server
+make build
+# OR: go build -o server ./cmd/server
 ```
 - First build (clean): Takes ~11 seconds. NEVER CANCEL. Set timeout to 60+ seconds.
 - Subsequent builds (cached): Takes <1 second
 
 **Run code validation:**
 ```bash
-go vet ./...
+make vet
+# OR: go vet ./...
 ```
 - Takes ~2 seconds - use default timeout
 
 **Check code formatting:**
 ```bash
-gofmt -l .
+make fmt-check
+# OR: gofmt -l .
 ```
 - Takes <1 second - use default timeout
 - Lists files that need formatting (some files in this repo are not perfectly formatted but this is non-critical)
 
 **Fix formatting:**
 ```bash
-gofmt -w .
+make fmt
+# OR: gofmt -w .
 ```
 - Takes <1 second - use default timeout
 
 **Run tests (no tests currently exist):**
 ```bash
-go test ./...
+make test
+# OR: go test ./...
 ```
 - Takes ~2 seconds - use default timeout
 - Currently returns "no test files" for all packages
@@ -85,7 +101,8 @@ go test ./...
 
 **Start the server with example configuration:**
 ```bash
-./server --db-config ./example/database.yaml --queries-config ./example/queries.yaml --port 8080
+make run
+# OR: ./server --db-config ./example/database.yaml --queries-config ./example/queries.yaml --port 8080
 ```
 - Server starts in ~3 seconds
 - Requires both --db-config and --queries-config flags
@@ -93,27 +110,37 @@ go test ./...
 
 **Start with test configuration:**
 ```bash
-./server --db-config ./testdata/database.yaml --queries-config ./testdata/queries.yaml --port 8081
+make run-test
+# OR: ./server --db-config ./testdata/database.yaml --queries-config ./testdata/queries.yaml --port 8081
 ```
 
 **View help:**
 ```bash
-./server --help
+make run-help
+# OR: ./server --help
 ```
 
 ## API Validation
 
 After starting the server, ALWAYS test functionality with these validation scenarios:
 
+**Run comprehensive API tests:**
+```bash
+make api-test
+```
+This runs all 7 validation scenarios below automatically. For individual tests:
+
 ### Health Check
 ```bash
-curl http://localhost:8080/health
+make health
+# OR: curl http://localhost:8080/health
 ```
 Expected response: `{"status":"healthy"}`
 
 ### List Available Queries
 ```bash
-curl http://localhost:8080/queries
+make queries
+# OR: curl http://localhost:8080/queries
 ```
 Expected response: JSON object with all configured queries and their parameters
 
@@ -195,12 +222,13 @@ simple-query-server/
 
 1. **Build and validate changes:**
    ```bash
-   go build -o server ./cmd/server && go vet ./...
+   make all
+   # OR: go build -o server ./cmd/server && go vet ./...
    ```
 
 2. **Test your changes:**
-   - Start server with example configs
-   - Run all API validation commands above
+   - Start server: `make run`
+   - Run API validation: `make api-test`
    - Verify responses match expected output
 
 3. **Always test error scenarios:**
@@ -211,7 +239,8 @@ simple-query-server/
 
 4. **Before committing:**
    ```bash
-   go mod tidy && gofmt -w .
+   make clean-deps && make fmt
+   # OR: go mod tidy && gofmt -w .
    ```
 
 ## Common Issues
