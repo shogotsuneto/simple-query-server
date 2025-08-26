@@ -6,6 +6,21 @@
 
 The `simple-query-server` is a lightweight Go HTTP server that exposes database queries defined in YAML configuration files as REST API endpoints. It currently uses mock responses for demonstration purposes but is designed to support PostgreSQL, MySQL, and SQLite databases.
 
+## Code Change Guidelines
+
+**Documentation Updates:**
+- Always update documentation (including this copilot-instructions.md file) when making changes that affect:
+  - Build processes, commands, or timing
+  - API endpoints or behavior
+  - Configuration file formats
+  - Development workflow or procedures
+  - New features or significant changes to existing functionality
+
+**Backward Compatibility:**
+- Backward compatibility is usually not a concern unless explicitly told to maintain compatibility
+- Feel free to make breaking changes to improve the codebase when beneficial
+- Only preserve backward compatibility when specifically requested or when working with public APIs that external users depend on
+
 ## Working Effectively
 
 ### Prerequisites and Setup
