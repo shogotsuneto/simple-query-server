@@ -1,0 +1,57 @@
+# Build artifacts
+server
+*.exe
+*.dll
+*.dylib
+
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go coverage tool
+*.out
+
+# Dependency directories (remove the comment below to include it)
+# vendor/
+
+# Go workspace file
+go.work
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Docker files (not needed in image)
+Dockerfile*
+docker-compose*.yml
+
+# Git files
+.git/
+.gitignore
+
+# CI/CD files
+.github/
+
+# Documentation
+README.md
+*.md
+
+# Test data and examples (not needed for runtime)
+example/
+testdata/
+integration/
+
+# Temporary files
+tmp/
+temp/

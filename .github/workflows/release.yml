@@ -1,0 +1,175 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version (e.g., v1.0.0)'
+        required: true
+        type: string
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.24'
+    
+    - name: Cache Go modules
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/.cache/go-build
+          ~/go/pkg/mod
+        key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+        restore-keys: |
+          ${{ runner.os }}-go-
+    
+    - name: Download dependencies
+      run: make deps
+    
+    - name: Run code validation
+      run: make vet
+    
+    - name: Check code formatting
+      run: make fmt-check
+    
+    - name: Run unit tests
+      run: make test
+    
+    - name: Build application
+      run: make build
+    
+    - name: Run integration tests
+      run: make integration-test
+
+  build-and-push:
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+    
+    - name: Log in to Container Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ env.REGISTRY }}
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    
+    - name: Extract metadata
+      id: meta
+      uses: docker/metadata-action@v5
+      with:
+        images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+        tags: |
+          type=raw,value=${{ github.event.inputs.version }}
+          type=raw,value=latest
+    
+    - name: Build and push Docker image
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        platforms: linux/amd64,linux/arm64
+        push: true
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+
+  draft-release:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+    
+    - name: Extract unreleased changes from CHANGELOG
+      id: changelog
+      run: |
+        # Extract unreleased section from CHANGELOG.md
+        sed -n '/## \[Unreleased\]/,/## \[/p' CHANGELOG.md | sed '$d' | tail -n +2 > unreleased_changes.txt
+        
+        # Create release notes with the unreleased changes
+        echo "RELEASE_NOTES<<EOF" >> $GITHUB_OUTPUT
+        cat unreleased_changes.txt >> $GITHUB_OUTPUT
+        echo "EOF" >> $GITHUB_OUTPUT
+    
+    - name: Create Draft Release
+      id: create_release
+      uses: softprops/action-gh-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: ${{ github.event.inputs.version }}
+        name: Release ${{ github.event.inputs.version }}
+        body: ${{ steps.changelog.outputs.RELEASE_NOTES }}
+        draft: true
+        prerelease: false
+
+  update-changelog:
+    needs: draft-release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+    
+    - name: Update CHANGELOG.md
+      run: |
+        # Get current date
+        RELEASE_DATE=$(date +%Y-%m-%d)
+        VERSION="${{ github.event.inputs.version }}"
+        
+        # Update CHANGELOG.md by replacing [Unreleased] with the version and adding a new [Unreleased] section
+        awk -v version="$VERSION" -v date="$RELEASE_DATE" '
+        /^## \[Unreleased\]/ { 
+          print "## [Unreleased]"
+          print ""
+          print "## [" version "] - " date
+          next
+        }
+        { print }
+        ' CHANGELOG.md > temp_changelog.md
+        
+        mv temp_changelog.md CHANGELOG.md
+    
+    - name: Create Pull Request
+      uses: peter-evans/create-pull-request@v5
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+        commit-message: "Release ${{ github.event.inputs.version }}: Update CHANGELOG"
+        title: "Release ${{ github.event.inputs.version }}: Update CHANGELOG"
+        body: |
+          This PR updates the CHANGELOG.md file for release ${{ github.event.inputs.version }}.
+          
+          Changes:
+          - Move unreleased changes to version ${{ github.event.inputs.version }}
+          - Add release date
+          
+          This PR was created automatically by the release workflow.
+        branch: release/${{ github.event.inputs.version }}
+        base: main

@@ -31,6 +31,15 @@ The `simple-query-server` is a lightweight Go HTTP server that exposes database 
 - Docker and Docker Compose for PostgreSQL database
 - Dependencies: gopkg.in/yaml.v3 and github.com/lib/pq (PostgreSQL driver)
 
+### Release Process
+
+- GitHub Actions release workflow available for creating releases
+- Manual trigger with version input (format `v*` e.g., `v1.0.0`)  
+- Automatically runs tests, builds multi-arch Docker images, and pushes to GHCR
+- Creates draft release with CHANGELOG content
+- Creates PR to update CHANGELOG with release version
+- Multi-stage Dockerfile supports both x86_64 and arm64 architectures
+
 ### Makefile Commands
 
 A comprehensive Makefile is available with convenient shortcuts for all development tasks. Run `make help` to see all available commands organized by category:
