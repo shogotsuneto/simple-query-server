@@ -52,7 +52,7 @@ func (e *PostgreSQLExecutor) validateParameters(queryConfig config.Query, params
 	for _, param := range queryConfig.Params {
 		value, exists := params[param.Name]
 		if !exists {
-			return fmt.Errorf("required parameter '%s' is missing", param.Name)
+			return NewClientErrorf("required parameter '%s' is missing", param.Name)
 		}
 
 		// Basic type validation
@@ -62,18 +62,18 @@ func (e *PostgreSQLExecutor) validateParameters(queryConfig config.Query, params
 			case int, int32, int64, float64:
 				// JSON numbers are parsed as float64, so we accept them for int parameters
 			default:
-				return fmt.Errorf("parameter '%s' must be an integer, got %T", param.Name, v)
+				return NewClientErrorf("parameter '%s' must be an integer, got %T", param.Name, v)
 			}
 		case "string":
 			if _, ok := value.(string); !ok {
-				return fmt.Errorf("parameter '%s' must be a string, got %T", param.Name, value)
+				return NewClientErrorf("parameter '%s' must be a string, got %T", param.Name, value)
 			}
 		case "float":
 			switch value.(type) {
 			case float32, float64, int, int32, int64:
 				// Accept numeric types for float parameters
 			default:
-				return fmt.Errorf("parameter '%s' must be a number, got %T", param.Name, value)
+				return NewClientErrorf("parameter '%s' must be a number, got %T", param.Name, value)
 			}
 		}
 	}
@@ -179,7 +179,7 @@ func (e *PostgreSQLExecutor) convertSQLParameters(sql string, params map[string]
 	for i, paramName := range paramOrder {
 		value, exists := params[paramName]
 		if !exists {
-			return "", nil, fmt.Errorf("parameter '%s' referenced in SQL but not provided", paramName)
+			return "", nil, NewClientErrorf("parameter '%s' referenced in SQL but not provided", paramName)
 		}
 		args[i] = value
 
