@@ -50,7 +50,7 @@ INSERT INTO users (name, email, status, active) VALUES
 -- Verify data insertion
 -- These comments show expected counts after insertion:
 -- Total users: 23
--- Active users: 18  
+-- Active users: 19  
 -- Inactive users: 2
 -- Suspended users: 3
 -- Users with profiles: 14

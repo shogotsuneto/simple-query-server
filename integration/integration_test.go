@@ -222,53 +222,60 @@ func TestListQueriesEndpoint(t *testing.T) {
 // TestQueryExecutionSuccess tests successful query execution scenarios
 func TestQueryExecutionSuccess(t *testing.T) {
 	tests := []struct {
-		name           string
-		queryName      string
-		params         map[string]interface{}
-		expectRows     bool
-		expectedFields []string
+		name             string
+		queryName        string
+		params           map[string]interface{}
+		expectRows       bool
+		expectedRowCount int
+		expectedFields   []string
 	}{
 		{
-			name:           "Get user by ID",
-			queryName:      "get_user_by_id",
-			params:         map[string]interface{}{"id": 1},
-			expectRows:     true,
-			expectedFields: []string{"id", "name", "email"},
+			name:             "Get user by ID",
+			queryName:        "get_user_by_id",
+			params:           map[string]interface{}{"id": 1},
+			expectRows:       true,
+			expectedRowCount: 1,
+			expectedFields:   []string{"id", "name", "email"},
 		},
 		{
-			name:           "Get all active users",
-			queryName:      "get_all_active_users",
-			params:         map[string]interface{}{},
-			expectRows:     true,
-			expectedFields: []string{"id", "name", "email"},
+			name:             "Get all active users",
+			queryName:        "get_all_active_users",
+			params:           map[string]interface{}{},
+			expectRows:       true,
+			expectedRowCount: 19,
+			expectedFields:   []string{"id", "name", "email"},
 		},
 		{
-			name:           "Search users by name",
-			queryName:      "search_users",
-			params:         map[string]interface{}{"name": "%Alice%"},
-			expectRows:     true,
-			expectedFields: []string{"id", "name"},
+			name:             "Search users by name",
+			queryName:        "search_users",
+			params:           map[string]interface{}{"name": "%Alice%"},
+			expectRows:       true,
+			expectedRowCount: 3,
+			expectedFields:   []string{"id", "name"},
 		},
 		{
-			name:           "List users with pagination",
-			queryName:      "list_users",
-			params:         map[string]interface{}{"limit": 5, "offset": 0},
-			expectRows:     true,
-			expectedFields: []string{"id", "name", "email"},
+			name:             "List users with pagination",
+			queryName:        "list_users",
+			params:           map[string]interface{}{"limit": 5, "offset": 0},
+			expectRows:       true,
+			expectedRowCount: 5,
+			expectedFields:   []string{"id", "name", "email"},
 		},
 		{
-			name:           "Count users by status",
-			queryName:      "count_users_by_status",
-			params:         map[string]interface{}{"status": "active"},
-			expectRows:     true,
-			expectedFields: []string{"status", "count"},
+			name:             "Count users by status",
+			queryName:        "count_users_by_status",
+			params:           map[string]interface{}{"status": "active"},
+			expectRows:       true,
+			expectedRowCount: 1,
+			expectedFields:   []string{"status", "count"},
 		},
 		{
-			name:           "Multiple parameters query",
-			queryName:      "test_multiple_params",
-			params:         map[string]interface{}{"min_id": 1, "max_id": 5, "status": "active"},
-			expectRows:     true,
-			expectedFields: []string{"id", "name", "email", "status", "active", "created_at", "updated_at"},
+			name:             "Multiple parameters query",
+			queryName:        "test_multiple_params",
+			params:           map[string]interface{}{"min_id": 1, "max_id": 5, "status": "active"},
+			expectRows:       true,
+			expectedRowCount: 2,
+			expectedFields:   []string{"id", "name", "email", "status", "active", "created_at", "updated_at"},
 		},
 	}
 
@@ -300,6 +307,12 @@ func TestQueryExecutionSuccess(t *testing.T) {
 				rowsSlice := rows.([]interface{})
 				if len(rowsSlice) == 0 {
 					t.Errorf("Expected at least one row in response")
+					return
+				}
+
+				// Check expected row count
+				if len(rowsSlice) != tt.expectedRowCount {
+					t.Errorf("Expected %d rows, got %d", tt.expectedRowCount, len(rowsSlice))
 					return
 				}
 
