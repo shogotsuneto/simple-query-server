@@ -247,6 +247,36 @@ Content-Type: application/json
 }
 ```
 
+## Testing
+
+### Manual API Testing
+
+For quick validation with a running server:
+
+```bash
+make api-test
+```
+
+This runs comprehensive curl-based tests against the running server.
+
+### Integration Tests
+
+For automated testing with full environment setup:
+
+```bash
+make integration-test
+```
+
+This command:
+- Starts an isolated PostgreSQL database in Docker
+- Builds and starts the server with test configuration
+- Runs comprehensive Go-based integration tests
+- Tests all API endpoints with real HTTP requests
+- Validates error handling and edge cases
+- Automatically cleans up all test resources
+
+See [integration/README.md](integration/README.md) for detailed integration testing documentation.
+
 ## Development Status
 
 **Current Implementation:**
@@ -258,6 +288,7 @@ Content-Type: application/json
 - ✅ **Docker Compose setup with sample database**
 - ✅ Command-line interface with flags
 - ✅ Error handling and logging
+- ✅ **Integration tests with real databases**
 
 **TODO (for production use):**
 - [ ] MySQL and SQLite database support
@@ -266,7 +297,6 @@ Content-Type: application/json
 - [ ] Authentication and authorization
 - [ ] Rate limiting
 - [ ] Metrics and monitoring
-- [ ] Integration tests with real databases
 
 ## Contributing
 

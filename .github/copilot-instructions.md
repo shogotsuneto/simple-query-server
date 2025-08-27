@@ -102,11 +102,26 @@ make fmt
 
 - Takes <1 second - use default timeout
 
-**Run tests (no tests currently exist):**
+**Run unit tests:**
 
 ```bash
 make test
 ```
+
+- Takes ~2 seconds - use default timeout
+- Currently includes unit tests for SQL parameter conversion logic
+
+**Run integration tests:**
+
+```bash
+make integration-test
+```
+
+- Takes ~30 seconds - set timeout to 60+ seconds
+- Starts isolated PostgreSQL database in Docker
+- Builds and runs server with test configuration
+- Executes comprehensive HTTP API tests with real database
+- Automatically cleans up test environment
 
 - Takes ~2 seconds - use default timeout
 - Currently returns "no test files" for all packages

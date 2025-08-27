@@ -1,0 +1,35 @@
+# Docker Compose setup for integration tests
+# This provides an isolated database environment for integration tests
+# The server runs on the host to simplify the setup
+
+services:
+  # PostgreSQL database service for integration tests
+  postgres-integration:
+    image: postgres:15
+    container_name: simple-query-server-postgres-integration
+    environment:
+      POSTGRES_DB: queryserver_integration_test
+      POSTGRES_USER: testuser
+      POSTGRES_PASSWORD: testpass
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --lc-collate=C --lc-ctype=C"
+    ports:
+      - "5433:5432"  # Different port to avoid conflicts
+    volumes:
+      # Mount SQL initialization scripts
+      - ./sql/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql
+      - ./sql/data.sql:/docker-entrypoint-initdb.d/02-data.sql
+    networks:
+      - integration-test-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U testuser -d queryserver_integration_test"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+networks:
+  integration-test-network:
+    driver: bridge
+
+volumes:
+  postgres_integration_data:
+    driver: local
