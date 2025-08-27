@@ -3,9 +3,3 @@
 
 type: "postgres"
 dsn: "postgres://queryuser:querypass@localhost:5432/queryserver?sslmode=disable"
-
-# For production, consider using environment variables:
-# dsn: "postgres://queryuser:querypass@postgres:5432/queryserver?sslmode=disable"
-#
-# Or with SSL enabled:
-# dsn: "postgres://queryuser:querypass@localhost:5432/queryserver?sslmode=require"

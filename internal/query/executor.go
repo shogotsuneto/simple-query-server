@@ -19,7 +19,6 @@ import (
 //
 // Current implementations:
 // - PostgreSQLExecutor: Full PostgreSQL support
-// - MySQLExecutor: Placeholder for future MySQL support
 type QueryExecutor interface {
 	// Execute runs a query with the given parameters and returns results as rows of key-value pairs.
 	// Parameters are validated according to the query configuration before execution.
