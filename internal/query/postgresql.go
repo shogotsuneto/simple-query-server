@@ -7,8 +7,8 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/shogotsuneto/simple-query-server/internal/config"
 	_ "github.com/lib/pq" // PostgreSQL driver
+	"github.com/shogotsuneto/simple-query-server/internal/config"
 )
 
 // PostgreSQLExecutor handles query execution against PostgreSQL databases
@@ -22,12 +22,12 @@ func NewPostgreSQLExecutor(dbConfig *config.DatabaseConfig) (*PostgreSQLExecutor
 	executor := &PostgreSQLExecutor{
 		dbConfig: dbConfig,
 	}
-	
+
 	// Connect to database - fail if connection fails
 	if err := executor.connect(); err != nil {
 		return nil, fmt.Errorf("failed to connect to PostgreSQL database: %w", err)
 	}
-	
+
 	return executor, nil
 }
 
@@ -45,7 +45,7 @@ func (e *PostgreSQLExecutor) Execute(queryConfig config.Query, params map[string
 	if e.db == nil {
 		return nil, fmt.Errorf("no database connection available")
 	}
-	
+
 	return e.executeSQL(queryConfig.SQL, params)
 }
 
@@ -89,14 +89,14 @@ func (e *PostgreSQLExecutor) connect() error {
 	if err != nil {
 		return fmt.Errorf("failed to open PostgreSQL connection: %w", err)
 	}
-	
+
 	// Test the connection
 	if err := e.db.Ping(); err != nil {
 		e.db.Close()
 		e.db = nil
 		return fmt.Errorf("failed to ping PostgreSQL database: %w", err)
 	}
-	
+
 	log.Printf("Successfully connected to PostgreSQL database")
 	return nil
 }
@@ -118,24 +118,24 @@ func (e *PostgreSQLExecutor) executeSQL(sql string, params map[string]interface{
 	if err != nil {
 		return nil, fmt.Errorf("failed to convert SQL parameters: %w", err)
 	}
-	
+
 	log.Printf("Executing PostgreSQL SQL: %s", convertedSQL)
 	log.Printf("Arguments: %+v", args)
-	
+
 	rows, err := e.db.Query(convertedSQL, args...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute PostgreSQL query: %w", err)
 	}
 	defer rows.Close()
-	
+
 	// Get column names
 	columns, err := rows.Columns()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get column names: %w", err)
 	}
-	
+
 	var results []map[string]interface{}
-	
+
 	for rows.Next() {
 		// Create slice to hold column values
 		values := make([]interface{}, len(columns))
@@ -143,11 +143,11 @@ func (e *PostgreSQLExecutor) executeSQL(sql string, params map[string]interface{
 		for i := range values {
 			valuePtrs[i] = &values[i]
 		}
-		
+
 		if err := rows.Scan(valuePtrs...); err != nil {
 			return nil, fmt.Errorf("failed to scan row: %w", err)
 		}
-		
+
 		// Convert to map
 		row := make(map[string]interface{})
 		for i, col := range columns {
@@ -159,14 +159,14 @@ func (e *PostgreSQLExecutor) executeSQL(sql string, params map[string]interface{
 				row[col] = val
 			}
 		}
-		
+
 		results = append(results, row)
 	}
-	
+
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("error iterating over rows: %w", err)
 	}
-	
+
 	return results, nil
 }
 
@@ -175,15 +175,15 @@ func (e *PostgreSQLExecutor) convertSQLParameters(sql string, params map[string]
 	// Find all :param references in the SQL
 	re := regexp.MustCompile(`:(\w+)`)
 	matches := re.FindAllStringSubmatch(sql, -1)
-	
+
 	if len(matches) == 0 {
 		// No parameters to convert
 		return sql, []interface{}{}, nil
 	}
-	
+
 	paramOrder := make([]string, 0, len(matches))
 	paramSet := make(map[string]bool)
-	
+
 	// Extract unique parameter names in order of appearance
 	for _, match := range matches {
 		paramName := match[1]
@@ -192,23 +192,23 @@ func (e *PostgreSQLExecutor) convertSQLParameters(sql string, params map[string]
 			paramSet[paramName] = true
 		}
 	}
-	
+
 	// Build args slice and replace parameters
 	args := make([]interface{}, len(paramOrder))
 	convertedSQL := sql
-	
+
 	for i, paramName := range paramOrder {
 		value, exists := params[paramName]
 		if !exists {
 			return "", nil, fmt.Errorf("parameter '%s' referenced in SQL but not provided", paramName)
 		}
 		args[i] = value
-		
+
 		// Replace all occurrences of this parameter
 		paramPlaceholder := fmt.Sprintf(":%s", paramName)
 		pgPlaceholder := fmt.Sprintf("$%d", i+1)
 		convertedSQL = strings.ReplaceAll(convertedSQL, paramPlaceholder, pgPlaceholder)
 	}
-	
+
 	return convertedSQL, args, nil
 }

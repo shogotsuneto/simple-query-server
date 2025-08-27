@@ -12,10 +12,10 @@ import (
 
 func main() {
 	var (
-		dbConfigPath     = flag.String("db-config", "", "Path to database configuration YAML file")
+		dbConfigPath      = flag.String("db-config", "", "Path to database configuration YAML file")
 		queriesConfigPath = flag.String("queries-config", "", "Path to queries configuration YAML file")
-		port             = flag.String("port", "8080", "Port to run the server on")
-		help             = flag.Bool("help", false, "Show help message")
+		port              = flag.String("port", "8080", "Port to run the server on")
+		help              = flag.Bool("help", false, "Show help message")
 	)
 	flag.Parse()
 

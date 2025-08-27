@@ -235,7 +235,7 @@ The server requires two YAML configuration files:
 
 ### Database Configuration (database.yaml)
 
-- Defines database connection settings (type, DSN, credentials)
+- Defines database connection settings (type, DSN)
 - Example locations: `./example/database.yaml`, `./testdata/database.yaml`
 - Currently supports PostgreSQL (full implementation) - database connection is required
 

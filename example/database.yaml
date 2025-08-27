@@ -4,15 +4,6 @@
 type: "postgres"
 dsn: "postgres://queryuser:querypass@localhost:5432/queryserver?sslmode=disable"
 
-# Alternative: using separate credentials (optional)
-# credentials:
-#   username: "queryuser"
-#   password: "querypass"
-#   host: "localhost"
-#   port: "5432"
-#   database: "queryserver"
-#   sslmode: "disable"
-
 # For production, consider using environment variables:
 # dsn: "postgres://queryuser:querypass@postgres:5432/queryserver?sslmode=disable"
 #
