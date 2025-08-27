@@ -11,34 +11,98 @@ import (
 	_ "github.com/lib/pq" // PostgreSQL driver
 )
 
-// Executor handles query execution against the database
-type Executor struct {
-	dbConfig *config.DatabaseConfig
-	db       *sql.DB
+// QueryExecutor defines the interface for database query execution.
+// This interface enables pluggable database support by abstracting
+// database-specific implementation details behind a common contract.
+//
+// Implementations should handle:
+// - Database connection management
+// - Parameter validation and binding
+// - SQL execution and result processing
+// - Database-specific syntax and data type handling
+// - Proper error handling and resource cleanup
+//
+// Current implementations:
+// - PostgreSQLExecutor: Full PostgreSQL support
+// - MySQLExecutor: Placeholder for future MySQL support
+type QueryExecutor interface {
+	// Execute runs a query with the given parameters and returns results as rows of key-value pairs.
+	// Parameters are validated according to the query configuration before execution.
+	Execute(queryConfig config.Query, params map[string]interface{}) ([]map[string]interface{}, error)
+	
+	// Close releases database resources and closes the connection.
+	// Should be called when the executor is no longer needed.
+	Close() error
 }
 
-// NewExecutor creates a new query executor
-func NewExecutor(dbConfig *config.DatabaseConfig) (*Executor, error) {
-	executor := &Executor{
-		dbConfig: dbConfig,
-	}
-	
+// NewQueryExecutor creates a new query executor based on database type
+func NewQueryExecutor(dbConfig *config.DatabaseConfig) (QueryExecutor, error) {
 	// Database configuration is required
 	if dbConfig.DSN == "" || dbConfig.Type == "" {
 		return nil, fmt.Errorf("database configuration is required: both type and DSN must be provided")
 	}
 	
+	switch dbConfig.Type {
+	case "postgres":
+		return NewPostgreSQLExecutor(dbConfig)
+	case "mysql":
+		return NewMySQLExecutor(dbConfig)
+	default:
+		return nil, fmt.Errorf("database type '%s' is not supported yet (supported types: postgres, mysql)", dbConfig.Type)
+	}
+}
+
+// MySQLExecutor handles query execution against MySQL databases
+type MySQLExecutor struct {
+	dbConfig *config.DatabaseConfig
+	db       *sql.DB
+}
+
+// NewMySQLExecutor creates a new MySQL query executor (placeholder implementation)
+func NewMySQLExecutor(dbConfig *config.DatabaseConfig) (*MySQLExecutor, error) {
+	// This is a placeholder implementation to demonstrate the pluggable architecture
+	// A full MySQL implementation would:
+	// 1. Import the MySQL driver: _ "github.com/go-sql-driver/mysql"
+	// 2. Connect to MySQL database
+	// 3. Handle MySQL-specific parameter binding (e.g., ? instead of $1, $2...)
+	// 4. Handle MySQL-specific SQL syntax and data types
+	
+	return nil, fmt.Errorf("MySQL support is not yet implemented - this is a placeholder to demonstrate pluggable architecture")
+}
+
+// Execute would implement MySQL-specific query execution
+func (e *MySQLExecutor) Execute(queryConfig config.Query, params map[string]interface{}) ([]map[string]interface{}, error) {
+	return nil, fmt.Errorf("MySQL support is not yet implemented")
+}
+
+// Close would implement MySQL connection cleanup
+func (e *MySQLExecutor) Close() error {
+	return fmt.Errorf("MySQL support is not yet implemented")
+}
+
+// PostgreSQLExecutor handles query execution against PostgreSQL databases
+type PostgreSQLExecutor struct {
+	dbConfig *config.DatabaseConfig
+	db       *sql.DB
+}
+
+// NewPostgreSQLExecutor creates a new PostgreSQL query executor
+func NewPostgreSQLExecutor(dbConfig *config.DatabaseConfig) (*PostgreSQLExecutor, error) {
+	executor := &PostgreSQLExecutor{
+		dbConfig: dbConfig,
+	}
+	
 	// Connect to database - fail if connection fails
-	if err := executor.Connect(); err != nil {
-		return nil, fmt.Errorf("failed to connect to database: %w", err)
+	if err := executor.connect(); err != nil {
+		return nil, fmt.Errorf("failed to connect to PostgreSQL database: %w", err)
 	}
 	
 	return executor, nil
 }
 
 // Execute executes a query with the given parameters
-func (e *Executor) Execute(queryConfig config.Query, params map[string]interface{}) ([]map[string]interface{}, error) {
-	log.Printf("Executing query: %s", queryConfig.SQL)
+func (e *PostgreSQLExecutor) Execute(queryConfig config.Query, params map[string]interface{}) ([]map[string]interface{}, error) {
+	log.Printf("Executing PostgreSQL query: %s", queryConfig.SQL)
 	log.Printf("Parameters: %+v", params)
 
 	// Validate parameters
@@ -55,7 +119,7 @@ func (e *Executor) Execute(queryConfig config.Query, params map[string]interface
 }
 
 // validateParameters validates that required parameters are provided with correct types
-func (e *Executor) validateParameters(queryConfig config.Query, params map[string]interface{}) error {
+func (e *PostgreSQLExecutor) validateParameters(queryConfig config.Query, params map[string]interface{}) error {
 	for _, param := range queryConfig.Params {
 		value, exists := params[param.Name]
 		if !exists {
@@ -88,23 +152,19 @@ func (e *Executor) validateParameters(queryConfig config.Query, params map[strin
 }
 
 
-// Connect establishes a connection to the database
-func (e *Executor) Connect() error {
-	if e.dbConfig.Type != "postgres" {
-		return fmt.Errorf("database type '%s' is not supported yet (only 'postgres' is currently supported)", e.dbConfig.Type)
-	}
-	
+// connect establishes a connection to the PostgreSQL database
+func (e *PostgreSQLExecutor) connect() error {
 	var err error
 	e.db, err = sql.Open("postgres", e.dbConfig.DSN)
 	if err != nil {
-		return fmt.Errorf("failed to open database connection: %w", err)
+		return fmt.Errorf("failed to open PostgreSQL connection: %w", err)
 	}
 	
 	// Test the connection
 	if err := e.db.Ping(); err != nil {
 		e.db.Close()
 		e.db = nil
-		return fmt.Errorf("failed to ping database: %w", err)
+		return fmt.Errorf("failed to ping PostgreSQL database: %w", err)
 	}
 	
 	log.Printf("Successfully connected to PostgreSQL database")
@@ -112,7 +172,7 @@ func (e *Executor) Connect() error {
 }
 
 // Close closes the database connection
-func (e *Executor) Close() error {
+func (e *PostgreSQLExecutor) Close() error {
 	if e.db != nil {
 		err := e.db.Close()
 		e.db = nil
@@ -121,20 +181,20 @@ func (e *Executor) Close() error {
 	return nil
 }
 
-// executeSQL executes a SQL query against the real database
-func (e *Executor) executeSQL(sql string, params map[string]interface{}) ([]map[string]interface{}, error) {
+// executeSQL executes a SQL query against the PostgreSQL database
+func (e *PostgreSQLExecutor) executeSQL(sql string, params map[string]interface{}) ([]map[string]interface{}, error) {
 	// Convert :param syntax to PostgreSQL $1, $2, ... syntax
 	convertedSQL, args, err := e.convertSQLParameters(sql, params)
 	if err != nil {
 		return nil, fmt.Errorf("failed to convert SQL parameters: %w", err)
 	}
 	
-	log.Printf("Executing SQL: %s", convertedSQL)
+	log.Printf("Executing PostgreSQL SQL: %s", convertedSQL)
 	log.Printf("Arguments: %+v", args)
 	
 	rows, err := e.db.Query(convertedSQL, args...)
 	if err != nil {
-		return nil, fmt.Errorf("failed to execute query: %w", err)
+		return nil, fmt.Errorf("failed to execute PostgreSQL query: %w", err)
 	}
 	defer rows.Close()
 	
@@ -181,7 +241,7 @@ func (e *Executor) executeSQL(sql string, params map[string]interface{}) ([]map[
 }
 
 // convertSQLParameters converts :param syntax to PostgreSQL $1, $2, ... syntax
-func (e *Executor) convertSQLParameters(sql string, params map[string]interface{}) (string, []interface{}, error) {
+func (e *PostgreSQLExecutor) convertSQLParameters(sql string, params map[string]interface{}) (string, []interface{}, error) {
 	// Find all :param references in the SQL
 	re := regexp.MustCompile(`:(\w+)`)
 	matches := re.FindAllStringSubmatch(sql, -1)
