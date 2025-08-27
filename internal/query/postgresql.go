@@ -68,7 +68,7 @@ func (e *PostgreSQLExecutor) Execute(queryConfig config.Query, params map[string
 	}
 
 	// Ensure we have a database connection (but without ping)
-	if err := e.ensureConnectionNoPing(); err != nil {
+	if err := e.ensureConnection(); err != nil {
 		return nil, fmt.Errorf("database connection failed: %w", err)
 	}
 
@@ -127,8 +127,8 @@ func (e *PostgreSQLExecutor) connect() error {
 	return nil
 }
 
-// ensureConnectionNoPing ensures we have a database connection without ping checks
-func (e *PostgreSQLExecutor) ensureConnectionNoPing() error {
+// ensureConnection ensures we have a database connection without ping checks
+func (e *PostgreSQLExecutor) ensureConnection() error {
 	// If we have a connection, assume it's good (health monitor handles health checks)
 	if e.db != nil {
 		return nil
