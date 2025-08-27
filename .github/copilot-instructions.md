@@ -4,7 +4,7 @@
 
 ## Overview
 
-The `simple-query-server` is a lightweight Go HTTP server that exposes database queries defined in YAML configuration files as REST API endpoints. It now supports PostgreSQL databases with full query execution, parameter binding, and automatic fallback to mock responses when database is unavailable.
+The `simple-query-server` is a lightweight Go HTTP server that exposes database queries defined in YAML configuration files as REST API endpoints. It supports PostgreSQL databases with full query execution and parameter binding. **Database connection is required** - the server will fail to start if PostgreSQL is unavailable.
 
 ## Code Change Guidelines
 
@@ -131,8 +131,7 @@ make run
 ```
 
 - Server starts in ~3 seconds
-- Automatically connects to PostgreSQL if available
-- Falls back to mock responses if database connection fails
+- **Requires PostgreSQL database to be running** - server will exit with error if database is unavailable
 - Requires both --db-config and --queries-config flags
 - Default port is 8080 if not specified
 
@@ -238,7 +237,7 @@ The server requires two YAML configuration files:
 
 - Defines database connection settings (type, DSN, credentials)
 - Example locations: `./example/database.yaml`, `./testdata/database.yaml`
-- Currently supports PostgreSQL (full implementation) with fallback to mock responses
+- Currently supports PostgreSQL (full implementation) - database connection is required
 
 ### Queries Configuration (queries.yaml)
 
@@ -253,22 +252,21 @@ The server requires two YAML configuration files:
 simple-query-server/
 ├── cmd/server/main.go           # Main entry point - CLI flag handling and server startup
 ├── internal/config/loader.go    # YAML configuration loading and validation
-├── internal/query/executor.go   # Query execution engine (PostgreSQL + mock fallback)
+├── internal/query/executor.go   # Query execution engine (PostgreSQL only)
 ├── internal/server/http.go      # HTTP server and REST API routing
-├── sql/schema.sql               # PostgreSQL database schema
-├── sql/data.sql                 # Sample data for PostgreSQL
+├── example/sql/schema.sql       # PostgreSQL database schema
+├── example/sql/data.sql         # Sample data for PostgreSQL
 ├── example/                     # Example configuration files (PostgreSQL)
 ├── testdata/                    # Test configuration files
 ├── docker-compose.yml           # PostgreSQL database setup
-├── docker-README.md             # Docker setup instructions
 └── go.mod                       # Go module definition with PostgreSQL driver
 ```
 
 ## Key Implementation Details
 
-- **PostgreSQL Support**: Full PostgreSQL database integration with real query execution
+- **PostgreSQL Support**: Full PostgreSQL database integration with real query execution - **database connection required**
 - **Parameter Binding**: Converts `:param` syntax to PostgreSQL `$1, $2...` parameter binding
-- **Mock Fallback**: Automatically falls back to mock responses if database connection fails
+- **Database Requirement**: Server fails immediately if database connection is unavailable (no fallback)
 - **Parameter Validation**: Automatic validation of query parameters with type checking
 - **Error Handling**: Comprehensive error responses for missing configs, invalid queries, database errors, etc.
 - **Docker Integration**: Complete PostgreSQL setup with docker-compose, schema, and sample data
@@ -306,7 +304,7 @@ simple-query-server/
 ## Common Issues
 
 - **Server won't start**: Check that both --db-config and --queries-config flags are provided
-- **Database connection failed**: Ensure PostgreSQL is running (`docker compose up -d postgres`) and connection details are correct
+- **Database connection failed / Server exits immediately**: Ensure PostgreSQL is running (`docker compose up -d postgres`) and connection details are correct - **server requires database connection to start**
 - **Query not found**: Verify query name matches exactly what's defined in queries.yaml
 - **Parameter validation error**: Check parameter names and types match query definition
 - **Build failures**: Ensure Go 1.18+ is installed and go.mod is clean
@@ -316,7 +314,7 @@ simple-query-server/
 - NEVER CANCEL builds - first build takes ~11 seconds, subsequent builds <1 second
 - Always test with actual API calls after making changes - simply starting/stopping the server is insufficient
 - ALWAYS run through complete end-to-end validation scenarios after making changes
-- The server connects to PostgreSQL when available, falls back to mock responses when not
+- **PostgreSQL database MUST be running** - server will exit with error if database connection fails
 - PostgreSQL database includes 23 sample users with various statuses for testing
 - Configuration files must be valid YAML with proper structure
 - Parameter binding uses `:parameter_name` syntax in SQL queries (converted to PostgreSQL `$1, $2...` format)
