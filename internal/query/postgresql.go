@@ -1,60 +1,31 @@
 package query
 
 import (
-	"context"
 	"database/sql"
 	"fmt"
 	"log"
 	"regexp"
 	"strings"
-	"sync/atomic"
-	"time"
 
-	_ "github.com/lib/pq" // PostgreSQL driver
 	"github.com/shogotsuneto/simple-query-server/internal/config"
+	"github.com/shogotsuneto/simple-query-server/internal/db"
 )
 
 // PostgreSQLExecutor handles query execution against PostgreSQL databases
 type PostgreSQLExecutor struct {
-	dbConfig      *config.DatabaseConfig
-	db            *sql.DB
-	healthy       int64  // atomic boolean for health status
-	cancel        context.CancelFunc // for stopping the health check goroutine
+	dbManager *db.Manager
 }
-
-const (
-	// Connection retry configuration
-	maxRetries = 5
-	baseDelay  = 1 * time.Second
-	maxDelay   = 30 * time.Second
-	// Health check interval
-	healthCheckInterval = 30 * time.Second
-)
 
 // NewPostgreSQLExecutor creates a new PostgreSQL query executor
 func NewPostgreSQLExecutor(dbConfig *config.DatabaseConfig) (*PostgreSQLExecutor, error) {
-	ctx, cancel := context.WithCancel(context.Background())
-	
-	executor := &PostgreSQLExecutor{
-		dbConfig: dbConfig,
-		cancel:   cancel,
-	}
-
-	// Try to connect initially, but don't fail if it doesn't work
-	// The connection will be retried later when needed
-	err := executor.connect()
+	dbManager, err := db.NewManager(dbConfig)
 	if err != nil {
-		log.Printf("Initial database connection failed: %v", err)
-		log.Printf("Server will continue starting, database connection will be retried when needed")
-		atomic.StoreInt64(&executor.healthy, 0) // unhealthy
-	} else {
-		atomic.StoreInt64(&executor.healthy, 1) // healthy
+		return nil, fmt.Errorf("failed to create database manager: %w", err)
 	}
 
-	// Start background health monitoring
-	go executor.healthMonitor(ctx)
-
-	return executor, nil
+	return &PostgreSQLExecutor{
+		dbManager: dbManager,
+	}, nil
 }
 
 // Execute executes a query with the given parameters
@@ -67,12 +38,13 @@ func (e *PostgreSQLExecutor) Execute(queryConfig config.Query, params map[string
 		return nil, err
 	}
 
-	// Ensure we have a database connection (but without ping)
-	if err := e.ensureConnection(); err != nil {
-		return nil, fmt.Errorf("database connection failed: %w", err)
+	// Get database connection from manager
+	db := e.dbManager.GetConnection()
+	if db == nil {
+		return nil, fmt.Errorf("database connection not available")
 	}
 
-	return e.executeSQL(queryConfig.SQL, params)
+	return e.executeSQL(db, queryConfig.SQL, params)
 }
 
 // validateParameters validates that required parameters are provided with correct types
@@ -108,120 +80,18 @@ func (e *PostgreSQLExecutor) validateParameters(queryConfig config.Query, params
 	return nil
 }
 
-// connect establishes a connection to the PostgreSQL database
-func (e *PostgreSQLExecutor) connect() error {
-	var err error
-	e.db, err = sql.Open("postgres", e.dbConfig.DSN)
-	if err != nil {
-		return fmt.Errorf("failed to open PostgreSQL connection: %w", err)
-	}
-
-	// Test the connection
-	if err := e.db.Ping(); err != nil {
-		e.db.Close()
-		e.db = nil
-		return fmt.Errorf("failed to ping PostgreSQL database: %w", err)
-	}
-
-	log.Printf("Successfully connected to PostgreSQL database")
-	return nil
-}
-
-// ensureConnection ensures we have a database connection without ping checks
-func (e *PostgreSQLExecutor) ensureConnection() error {
-	// If we have a connection, assume it's good (health monitor handles health checks)
-	if e.db != nil {
-		return nil
-	}
-
-	// Try to connect with retries
-	delay := baseDelay
-	for attempt := 1; attempt <= maxRetries; attempt++ {
-		log.Printf("Attempting database connection (attempt %d/%d)...", attempt, maxRetries)
-
-		if err := e.connect(); err != nil {
-			log.Printf("Database connection attempt %d failed: %v", attempt, err)
-
-			if attempt < maxRetries {
-				log.Printf("Retrying in %v...", delay)
-				time.Sleep(delay)
-				// Exponential backoff with max delay
-				delay = delay * 2
-				if delay > maxDelay {
-					delay = maxDelay
-				}
-			} else {
-				return fmt.Errorf("failed to connect after %d attempts: %w", maxRetries, err)
-			}
-		} else {
-			log.Printf("Database connection established successfully on attempt %d", attempt)
-			return nil
-		}
-	}
-
-	return fmt.Errorf("failed to connect after %d attempts", maxRetries)
-}
-
-// healthMonitor runs periodic health checks in the background
-func (e *PostgreSQLExecutor) healthMonitor(ctx context.Context) {
-	ticker := time.NewTicker(healthCheckInterval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			e.performHealthCheck()
-		}
-	}
-}
-
-// performHealthCheck performs a health check and updates the cached status
-func (e *PostgreSQLExecutor) performHealthCheck() {
-	if e.db == nil {
-		// Try to connect without retries for health check
-		if err := e.connect(); err != nil {
-			atomic.StoreInt64(&e.healthy, 0) // unhealthy
-			return
-		}
-	}
-
-	// Quick ping to verify connection is still alive
-	if err := e.db.Ping(); err != nil {
-		log.Printf("Database health check failed: %v", err)
-		e.db.Close()
-		e.db = nil
-		atomic.StoreInt64(&e.healthy, 0) // unhealthy
-	} else {
-		atomic.StoreInt64(&e.healthy, 1) // healthy
-	}
-}
-
-// IsHealthy returns the cached health status without performing a ping
+// IsHealthy returns the cached health status from the database manager
 func (e *PostgreSQLExecutor) IsHealthy() bool {
-	return atomic.LoadInt64(&e.healthy) == 1
+	return e.dbManager.IsHealthy()
 }
 
 // Close closes the database connection and stops the health monitor
 func (e *PostgreSQLExecutor) Close() error {
-	// Stop the health monitor
-	if e.cancel != nil {
-		e.cancel()
-	}
-	
-	// Close database connection
-	if e.db != nil {
-		err := e.db.Close()
-		e.db = nil
-		atomic.StoreInt64(&e.healthy, 0) // unhealthy
-		return err
-	}
-	return nil
+	return e.dbManager.Close()
 }
 
 // executeSQL executes a SQL query against the PostgreSQL database
-func (e *PostgreSQLExecutor) executeSQL(sql string, params map[string]interface{}) ([]map[string]interface{}, error) {
+func (e *PostgreSQLExecutor) executeSQL(db *sql.DB, sql string, params map[string]interface{}) ([]map[string]interface{}, error) {
 	// Convert :param syntax to PostgreSQL $1, $2, ... syntax
 	convertedSQL, args, err := e.convertSQLParameters(sql, params)
 	if err != nil {
@@ -231,7 +101,7 @@ func (e *PostgreSQLExecutor) executeSQL(sql string, params map[string]interface{
 	log.Printf("Executing PostgreSQL SQL: %s", convertedSQL)
 	log.Printf("Arguments: %+v", args)
 
-	rows, err := e.db.Query(convertedSQL, args...)
+	rows, err := db.Query(convertedSQL, args...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute PostgreSQL query: %w", err)
 	}
