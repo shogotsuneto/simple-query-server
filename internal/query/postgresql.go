@@ -13,12 +13,12 @@ import (
 
 // PostgreSQLExecutor handles query execution against PostgreSQL databases
 type PostgreSQLExecutor struct {
-	dbManager *db.Manager
+	dbManager *db.PostgreSQLManager
 }
 
 // NewPostgreSQLExecutor creates a new PostgreSQL query executor
 func NewPostgreSQLExecutor(dbConfig *config.DatabaseConfig) (*PostgreSQLExecutor, error) {
-	dbManager, err := db.NewManager(dbConfig)
+	dbManager, err := db.NewPostgreSQLManager(dbConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create database manager: %w", err)
 	}

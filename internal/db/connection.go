@@ -21,19 +21,19 @@ const (
 	healthCheckInterval = 30 * time.Second
 )
 
-// Manager manages database connections and health monitoring
-type Manager struct {
+// PostgreSQLManager manages PostgreSQL database connections and health monitoring
+type PostgreSQLManager struct {
 	dbConfig *config.DatabaseConfig
 	db       *sql.DB
 	healthy  int64             // atomic boolean for health status
 	cancel   context.CancelFunc // for stopping the health check goroutine
 }
 
-// NewManager creates a new database connection manager
-func NewManager(dbConfig *config.DatabaseConfig) (*Manager, error) {
+// NewPostgreSQLManager creates a new PostgreSQL database connection manager
+func NewPostgreSQLManager(dbConfig *config.DatabaseConfig) (*PostgreSQLManager, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	
-	manager := &Manager{
+	manager := &PostgreSQLManager{
 		dbConfig: dbConfig,
 		cancel:   cancel,
 	}
@@ -45,17 +45,17 @@ func NewManager(dbConfig *config.DatabaseConfig) (*Manager, error) {
 }
 
 // GetConnection returns the current database connection
-func (m *Manager) GetConnection() *sql.DB {
+func (m *PostgreSQLManager) GetConnection() *sql.DB {
 	return m.db
 }
 
 // IsHealthy returns the cached health status
-func (m *Manager) IsHealthy() bool {
+func (m *PostgreSQLManager) IsHealthy() bool {
 	return atomic.LoadInt64(&m.healthy) == 1
 }
 
 // Close closes the database connection and stops the connection manager
-func (m *Manager) Close() error {
+func (m *PostgreSQLManager) Close() error {
 	// Stop the connection manager
 	if m.cancel != nil {
 		m.cancel()
@@ -72,7 +72,7 @@ func (m *Manager) Close() error {
 }
 
 // connectionManager handles connection establishment and health monitoring in background
-func (m *Manager) connectionManager(ctx context.Context) {
+func (m *PostgreSQLManager) connectionManager(ctx context.Context) {
 	// Try initial connection
 	m.tryConnect()
 	
@@ -90,7 +90,7 @@ func (m *Manager) connectionManager(ctx context.Context) {
 }
 
 // tryConnect attempts to establish database connection with retries
-func (m *Manager) tryConnect() {
+func (m *PostgreSQLManager) tryConnect() {
 	delay := baseDelay
 	for attempt := 1; attempt <= maxRetries; attempt++ {
 		log.Printf("Attempting database connection (attempt %d/%d)...", attempt, maxRetries)
@@ -119,7 +119,7 @@ func (m *Manager) tryConnect() {
 }
 
 // connect establishes a connection to the database
-func (m *Manager) connect() error {
+func (m *PostgreSQLManager) connect() error {
 	var err error
 	db, err := sql.Open("postgres", m.dbConfig.DSN)
 	if err != nil {
@@ -143,7 +143,7 @@ func (m *Manager) connect() error {
 }
 
 // performHealthCheck performs a health check and updates the cached status
-func (m *Manager) performHealthCheck() {
+func (m *PostgreSQLManager) performHealthCheck() {
 	if m.db == nil {
 		// No connection, try to establish one
 		m.tryConnect()
