@@ -4,7 +4,7 @@
 
 ## Overview
 
-The `simple-query-server` is a lightweight Go HTTP server that exposes database queries defined in YAML configuration files as REST API endpoints. It supports PostgreSQL databases with full query execution and parameter binding. **Database connection is required** - the server will fail to start if PostgreSQL is unavailable.
+The `simple-query-server` is a lightweight Go HTTP server that exposes database queries defined in YAML configuration files as REST API endpoints. It supports PostgreSQL databases with full query execution and parameter binding. The server starts successfully even when PostgreSQL is unavailable, with background connection management and automatic reconnection.
 
 ## Code Change Guidelines
 
@@ -146,7 +146,7 @@ make run
 ```
 
 - Server starts in ~3 seconds
-- **Requires PostgreSQL database to be running** - server will exit with error if database is unavailable
+- Server starts successfully even when PostgreSQL is unavailable, with background connection management
 - Requires both --db-config and --queries-config flags
 - Default port is 8080 if not specified
 
@@ -182,7 +182,11 @@ This runs all 7 validation scenarios below automatically. For individual tests:
 curl http://localhost:8080/health
 ```
 
-Expected response: `{"status":"healthy"}`
+When PostgreSQL is connected:
+Expected response: `{"database":{"connected":true},"status":"healthy"}`
+
+When PostgreSQL is unavailable:
+Expected response (HTTP 503): `{"database":{"connected":false},"status":"unhealthy"}`
 
 ### List Available Queries
 
@@ -252,7 +256,7 @@ The server requires two YAML configuration files:
 
 - Defines database connection settings (type, DSN)
 - Example locations: `./example/database.yaml`, `./testdata/database.yaml`
-- Currently supports PostgreSQL (full implementation) - database connection is required
+- Currently supports PostgreSQL (full implementation) with background connection management
 
 ### Queries Configuration (queries.yaml)
 
@@ -267,6 +271,7 @@ The server requires two YAML configuration files:
 simple-query-server/
 ├── cmd/server/main.go           # Main entry point - CLI flag handling and server startup
 ├── internal/config/loader.go    # YAML configuration loading and validation
+├── internal/db/connection.go    # PostgreSQL connection management with background retry
 ├── internal/query/executor.go   # Query execution engine (PostgreSQL only)
 ├── internal/server/http.go      # HTTP server and REST API routing
 ├── example/sql/schema.sql       # PostgreSQL database schema
@@ -279,9 +284,10 @@ simple-query-server/
 
 ## Key Implementation Details
 
-- **PostgreSQL Support**: Full PostgreSQL database integration with real query execution - **database connection required**
+- **PostgreSQL Support**: Full PostgreSQL database integration with real query execution and background connection management
 - **Parameter Binding**: Converts `:param` syntax to PostgreSQL `$1, $2...` parameter binding
-- **Database Requirement**: Server fails immediately if database connection is unavailable (no fallback)
+- **Background Connection Management**: Server starts without database, handles connections automatically with retry logic
+- **Health Monitoring**: Continuous health checks with automatic reconnection and meaningful status reporting
 - **Parameter Validation**: Automatic validation of query parameters with type checking
 - **Error Handling**: Comprehensive error responses for missing configs, invalid queries, database errors, etc.
 - **Docker Integration**: Complete PostgreSQL setup with docker-compose, schema, and sample data
@@ -298,7 +304,7 @@ simple-query-server/
 
 2. **Test your changes:**
 
-   - Start database: `docker compose up -d postgres`
+   - Start database: `docker compose up -d postgres` (optional - server starts without database)
    - Start server: `make run`
    - Run API validation: `make api-test`
    - Verify responses match expected output
@@ -319,7 +325,7 @@ simple-query-server/
 ## Common Issues
 
 - **Server won't start**: Check that both --db-config and --queries-config flags are provided
-- **Database connection failed / Server exits immediately**: Ensure PostgreSQL is running (`docker compose up -d postgres`) and connection details are correct - **server requires database connection to start**
+- **Database queries failing**: Ensure PostgreSQL is running (`docker compose up -d postgres`) and connection details are correct - server will automatically reconnect when database becomes available
 - **Query not found**: Verify query name matches exactly what's defined in queries.yaml
 - **Parameter validation error**: Check parameter names and types match query definition
 - **Build failures**: Ensure Go 1.18+ is installed and go.mod is clean
@@ -329,7 +335,7 @@ simple-query-server/
 - NEVER CANCEL builds - first build takes ~11 seconds, subsequent builds <1 second
 - Always test with actual API calls after making changes - simply starting/stopping the server is insufficient
 - ALWAYS run through complete end-to-end validation scenarios after making changes
-- **PostgreSQL database MUST be running** - server will exit with error if database connection fails
+- Server starts successfully even when PostgreSQL is unavailable, with automatic reconnection when database becomes available
 - PostgreSQL database includes 23 sample users with various statuses for testing
 - Configuration files must be valid YAML with proper structure
 - Parameter binding uses `:parameter_name` syntax in SQL queries (converted to PostgreSQL `$1, $2...` format)

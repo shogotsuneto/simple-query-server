@@ -11,7 +11,9 @@ The `simple-query-server` allows you to define database queries in YAML configur
 - **YAML Configuration**: Define database connections and queries in separate YAML files
 - **HTTP API**: Execute queries via REST endpoints with JSON payloads
 - **Parameter Validation**: Automatic validation of query parameters
-- **PostgreSQL Support**: Full PostgreSQL database support with connection pooling
+- **PostgreSQL Support**: Full PostgreSQL database support with background connection management
+- **Background Connection Management**: Server starts successfully even when database is unavailable
+- **Automatic Reconnection**: Exponential backoff retry mechanism with health monitoring
 - **Docker Integration**: Complete PostgreSQL setup with docker-compose
 - **Command Line Interface**: Flexible configuration via CLI flags
 
@@ -31,6 +33,8 @@ simple-query-server/
 ├── internal/
 │   ├── config/
 │   │   └── loader.go         # YAML configuration loading
+│   ├── db/
+│   │   └── connection.go     # PostgreSQL connection management with background retry
 │   ├── query/
 │   │   └── executor.go       # Query execution engine (PostgreSQL)
 │   └── server/
@@ -108,7 +112,7 @@ type: "sqlite"
 dsn: "./data.db"
 ```
 
-**Note**: Currently only PostgreSQL is supported. Database connection is required - the server will fail to start if no valid database connection is available.
+**Note**: Currently only PostgreSQL is supported. The server starts successfully even when the database is unavailable, with background connection management and automatic reconnection.
 
 ### Queries Configuration (`queries.yaml`)
 
@@ -134,7 +138,7 @@ queries:
 With PostgreSQL (recommended):
 
 ```bash
-# Start PostgreSQL database first
+# Start PostgreSQL database first (optional - server starts without database)
 docker compose up -d postgres
 
 # Start the server
@@ -154,7 +158,7 @@ make run-test # Uses test configuration on port 8081
 - `--port`: Port to run the server on (default: 8080)
 - `--help`: Show help message
 
-**Database Connection**: The server requires a valid database connection. If the connection fails, the server will exit with an error message.
+**Database Connection**: The server starts successfully even when the database is unavailable. Connection attempts happen automatically in the background with retry logic and health monitoring.
 
 ### API Endpoints
 
@@ -162,7 +166,11 @@ make run-test # Uses test configuration on port 8081
 ```bash
 GET /health
 ```
-Response: `{"status": "healthy"}`
+When PostgreSQL is connected:
+Response: `{"database":{"connected":true},"status":"healthy"}`
+
+When PostgreSQL is unavailable:
+Response (HTTP 503): `{"database":{"connected":false},"status":"unhealthy"}`
 
 #### List Available Queries
 ```bash
@@ -284,6 +292,8 @@ See [integration/README.md](integration/README.md) for detailed integration test
 - ✅ HTTP server with REST API endpoints
 - ✅ Parameter validation and type checking
 - ✅ **PostgreSQL database connection and query execution**
+- ✅ **Background connection management with automatic retry**
+- ✅ **Health monitoring with meaningful database status reporting**
 - ✅ **SQL parameter binding with :param syntax**
 - ✅ **Docker Compose setup with sample database**
 - ✅ Command-line interface with flags
@@ -292,7 +302,7 @@ See [integration/README.md](integration/README.md) for detailed integration test
 
 **TODO (for production use):**
 - [ ] MySQL and SQLite database support
-- [ ] Database connection pooling
+- [ ] Database connection pooling configuration
 - [ ] Query result caching
 - [ ] Authentication and authorization
 - [ ] Rate limiting
