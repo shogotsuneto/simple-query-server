@@ -76,10 +76,10 @@ func TestPostgreSQLExecutor_convertSQLParameters(t *testing.T) {
 		},
 		{
 			name:         "parameter in multiple contexts",
-			sql:          "UPDATE users SET name = :name, updated_by = :user_id WHERE id = :user_id AND name != :name",
+			sql:          "SELECT * FROM users WHERE (id = :user_id OR parent_id = :user_id) AND (name = :name OR display_name = :name)",
 			params:       map[string]interface{}{"name": "John Doe", "user_id": 1},
-			expectedSQL:  "UPDATE users SET name = $1, updated_by = $2 WHERE id = $2 AND name != $1",
-			expectedArgs: []interface{}{"John Doe", 1},
+			expectedSQL:  "SELECT * FROM users WHERE (id = $1 OR parent_id = $1) AND (name = $2 OR display_name = $2)",
+			expectedArgs: []interface{}{1, "John Doe"},
 			expectError:  false,
 		},
 		{
