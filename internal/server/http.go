@@ -25,13 +25,16 @@ type Response struct {
 }
 
 // New creates a new Server instance
-func New(dbConfig *config.DatabaseConfig, queriesConfig *config.QueriesConfig) *Server {
-	executor := query.NewExecutor(dbConfig)
+func New(dbConfig *config.DatabaseConfig, queriesConfig *config.QueriesConfig) (*Server, error) {
+	executor, err := query.NewExecutor(dbConfig)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create query executor: %w", err)
+	}
 	return &Server{
 		dbConfig:      dbConfig,
 		queriesConfig: queriesConfig,
 		executor:      executor,
-	}
+	}, nil
 }
 
 // Start starts the HTTP server on the specified port

@@ -14,7 +14,6 @@ The `simple-query-server` allows you to define database queries in YAML configur
 - **PostgreSQL Support**: Full PostgreSQL database support with connection pooling
 - **Docker Integration**: Complete PostgreSQL setup with docker-compose
 - **Command Line Interface**: Flexible configuration via CLI flags
-- **Mock Mode**: Fallback to mock responses when database is unavailable
 
 ## Project Structure
 
@@ -25,22 +24,21 @@ simple-query-server/
 │       └── main.go           # Main entry point
 ├── example/
 │   ├── database.yaml         # Example database configuration (PostgreSQL)
-│   └── queries.yaml          # Example queries configuration
+│   ├── queries.yaml          # Example queries configuration
+│   └── sql/
+│       ├── schema.sql        # Database schema (tables, indexes, functions)
+│       └── data.sql          # Sample data for testing
 ├── internal/
 │   ├── config/
 │   │   └── loader.go         # YAML configuration loading
 │   ├── query/
-│   │   └── executor.go       # Query execution engine (PostgreSQL + mock fallback)
+│   │   └── executor.go       # Query execution engine (PostgreSQL)
 │   └── server/
 │       └── http.go           # HTTP server and routing
-├── sql/
-│   ├── schema.sql            # Database schema (tables, indexes, functions)
-│   └── data.sql              # Sample data for testing
 ├── testdata/
 │   ├── database.yaml         # Test database configuration
 │   └── queries.yaml          # Test queries configuration
 ├── docker-compose.yml        # PostgreSQL database setup
-├── docker-README.md          # Docker setup instructions
 ├── go.mod
 ├── go.sum
 └── README.md
@@ -110,7 +108,7 @@ type: "sqlite"
 dsn: "./data.db"
 ```
 
-**Note**: Currently only PostgreSQL is supported. If no valid database connection is available, the server will fall back to mock responses for demonstration purposes.
+**Note**: Currently only PostgreSQL is supported. Database connection is required - the server will fail to start if no valid database connection is available.
 
 ### Queries Configuration (`queries.yaml`)
 
@@ -156,7 +154,7 @@ make run-test # Uses test configuration on port 8081
 - `--port`: Port to run the server on (default: 8080)
 - `--help`: Show help message
 
-**Database Connection**: The server will attempt to connect to the configured database. If the connection fails, it will log a warning and fall back to mock responses for demonstration purposes.
+**Database Connection**: The server requires a valid database connection. If the connection fails, the server will exit with an error message.
 
 ### API Endpoints
 
@@ -258,7 +256,6 @@ Content-Type: application/json
 - ✅ **PostgreSQL database connection and query execution**
 - ✅ **SQL parameter binding with :param syntax**
 - ✅ **Docker Compose setup with sample database**
-- ✅ Mock query responses (fallback when database unavailable)
 - ✅ Command-line interface with flags
 - ✅ Error handling and logging
 

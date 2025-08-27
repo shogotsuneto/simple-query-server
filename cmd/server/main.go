@@ -51,7 +51,10 @@ func main() {
 	log.Printf("Loaded %d queries from configuration", len(queriesConfig.Queries))
 
 	// Start HTTP server
-	srv := server.New(dbConfig, queriesConfig)
+	srv, err := server.New(dbConfig, queriesConfig)
+	if err != nil {
+		log.Fatalf("Failed to create server: %v", err)
+	}
 	if err := srv.Start(*port); err != nil {
 		log.Fatalf("Server failed to start: %v", err)
 	}

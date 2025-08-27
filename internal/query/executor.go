@@ -18,21 +18,22 @@ type Executor struct {
 }
 
 // NewExecutor creates a new query executor
-func NewExecutor(dbConfig *config.DatabaseConfig) *Executor {
+func NewExecutor(dbConfig *config.DatabaseConfig) (*Executor, error) {
 	executor := &Executor{
 		dbConfig: dbConfig,
 	}
 	
-	// Try to connect to database if DSN is provided and looks valid
-	if dbConfig.DSN != "" && dbConfig.Type != "" {
-		if err := executor.Connect(); err != nil {
-			log.Printf("Warning: Failed to connect to database, falling back to mock responses: %v", err)
-		}
-	} else {
-		log.Printf("Warning: No valid database configuration provided, using mock responses")
+	// Database configuration is required
+	if dbConfig.DSN == "" || dbConfig.Type == "" {
+		return nil, fmt.Errorf("database configuration is required: both type and DSN must be provided")
 	}
 	
-	return executor
+	// Connect to database - fail if connection fails
+	if err := executor.Connect(); err != nil {
+		return nil, fmt.Errorf("failed to connect to database: %w", err)
+	}
+	
+	return executor, nil
 }
 
 // Execute executes a query with the given parameters
@@ -45,13 +46,12 @@ func (e *Executor) Execute(queryConfig config.Query, params map[string]interface
 		return nil, err
 	}
 
-	// Use real database connection if available, otherwise fall back to mock
-	if e.db != nil {
-		return e.executeSQL(queryConfig.SQL, params)
+	// Execute SQL query against the database
+	if e.db == nil {
+		return nil, fmt.Errorf("no database connection available")
 	}
 	
-	log.Printf("Warning: No database connection available, using mock response")
-	return e.generateMockResponse(queryConfig, params)
+	return e.executeSQL(queryConfig.SQL, params)
 }
 
 // validateParameters validates that required parameters are provided with correct types
@@ -87,64 +87,6 @@ func (e *Executor) validateParameters(queryConfig config.Query, params map[strin
 	return nil
 }
 
-// generateMockResponse generates mock data for demonstration purposes
-func (e *Executor) generateMockResponse(queryConfig config.Query, params map[string]interface{}) ([]map[string]interface{}, error) {
-	// This is a placeholder that generates mock responses based on the SQL query pattern
-	sql := strings.ToLower(queryConfig.SQL)
-	
-	// Handle specific queries from our example configuration
-	if strings.Contains(sql, "users") && strings.Contains(sql, "where id =") {
-		// Mock response for get_user_by_id type queries
-		if id, exists := params["id"]; exists {
-			return []map[string]interface{}{
-				{
-					"id":    id,
-					"name":  fmt.Sprintf("User %v", id),
-					"email": fmt.Sprintf("user%v@example.com", id),
-				},
-			}, nil
-		}
-	}
-	
-	if strings.Contains(sql, "users") && strings.Contains(sql, "like") {
-		// Mock response for search_users type queries
-		return []map[string]interface{}{
-			{
-				"id":   1,
-				"name": "Alice Smith",
-			},
-			{
-				"id":   2,
-				"name": "Alice Johnson",
-			},
-		}, nil
-	}
-	
-	if strings.Contains(sql, "users") && strings.Contains(sql, "active = true") {
-		// Mock response for get_all_active_users
-		return []map[string]interface{}{
-			{
-				"id":    1,
-				"name":  "Active User 1",
-				"email": "user1@example.com",
-			},
-			{
-				"id":    2,
-				"name":  "Active User 2", 
-				"email": "user2@example.com",
-			},
-		}, nil
-	}
-
-	// Default mock response for any other query
-	return []map[string]interface{}{
-		{
-			"message": "Query executed successfully (mock data)",
-			"sql":     queryConfig.SQL,
-			"params":  params,
-		},
-	}, nil
-}
 
 // Connect establishes a connection to the database
 func (e *Executor) Connect() error {
