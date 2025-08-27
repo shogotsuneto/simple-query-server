@@ -16,8 +16,8 @@ services:
       - "5433:5432"  # Different port to avoid conflicts
     volumes:
       # Mount SQL initialization scripts
-      - ../example/sql/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql
-      - ../example/sql/data.sql:/docker-entrypoint-initdb.d/02-data.sql
+      - ./sql/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql
+      - ./sql/data.sql:/docker-entrypoint-initdb.d/02-data.sql
     networks:
       - integration-test-network
     healthcheck:
