@@ -7,28 +7,25 @@ import (
 	"regexp"
 	"strings"
 
-	_ "github.com/lib/pq" // PostgreSQL driver
 	"github.com/shogotsuneto/simple-query-server/internal/config"
+	"github.com/shogotsuneto/simple-query-server/internal/db"
 )
 
 // PostgreSQLExecutor handles query execution against PostgreSQL databases
 type PostgreSQLExecutor struct {
-	dbConfig *config.DatabaseConfig
-	db       *sql.DB
+	dbManager *db.PostgreSQLManager
 }
 
 // NewPostgreSQLExecutor creates a new PostgreSQL query executor
 func NewPostgreSQLExecutor(dbConfig *config.DatabaseConfig) (*PostgreSQLExecutor, error) {
-	executor := &PostgreSQLExecutor{
-		dbConfig: dbConfig,
+	dbManager, err := db.NewPostgreSQLManager(dbConfig)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create database manager: %w", err)
 	}
 
-	// Connect to database - fail if connection fails
-	if err := executor.connect(); err != nil {
-		return nil, fmt.Errorf("failed to connect to PostgreSQL database: %w", err)
-	}
-
-	return executor, nil
+	return &PostgreSQLExecutor{
+		dbManager: dbManager,
+	}, nil
 }
 
 // Execute executes a query with the given parameters
@@ -41,12 +38,13 @@ func (e *PostgreSQLExecutor) Execute(queryConfig config.Query, params map[string
 		return nil, err
 	}
 
-	// Execute SQL query against the database
-	if e.db == nil {
-		return nil, fmt.Errorf("no database connection available")
+	// Get database connection from manager
+	db := e.dbManager.GetConnection()
+	if db == nil {
+		return nil, fmt.Errorf("database connection not available")
 	}
 
-	return e.executeSQL(queryConfig.SQL, params)
+	return e.executeSQL(db, queryConfig.SQL, params)
 }
 
 // validateParameters validates that required parameters are provided with correct types
@@ -82,37 +80,18 @@ func (e *PostgreSQLExecutor) validateParameters(queryConfig config.Query, params
 	return nil
 }
 
-// connect establishes a connection to the PostgreSQL database
-func (e *PostgreSQLExecutor) connect() error {
-	var err error
-	e.db, err = sql.Open("postgres", e.dbConfig.DSN)
-	if err != nil {
-		return fmt.Errorf("failed to open PostgreSQL connection: %w", err)
-	}
-
-	// Test the connection
-	if err := e.db.Ping(); err != nil {
-		e.db.Close()
-		e.db = nil
-		return fmt.Errorf("failed to ping PostgreSQL database: %w", err)
-	}
-
-	log.Printf("Successfully connected to PostgreSQL database")
-	return nil
+// IsHealthy returns the cached health status from the database manager
+func (e *PostgreSQLExecutor) IsHealthy() bool {
+	return e.dbManager.IsHealthy()
 }
 
-// Close closes the database connection
+// Close closes the database connection and stops the health monitor
 func (e *PostgreSQLExecutor) Close() error {
-	if e.db != nil {
-		err := e.db.Close()
-		e.db = nil
-		return err
-	}
-	return nil
+	return e.dbManager.Close()
 }
 
 // executeSQL executes a SQL query against the PostgreSQL database
-func (e *PostgreSQLExecutor) executeSQL(sql string, params map[string]interface{}) ([]map[string]interface{}, error) {
+func (e *PostgreSQLExecutor) executeSQL(db *sql.DB, sql string, params map[string]interface{}) ([]map[string]interface{}, error) {
 	// Convert :param syntax to PostgreSQL $1, $2, ... syntax
 	convertedSQL, args, err := e.convertSQLParameters(sql, params)
 	if err != nil {
@@ -122,7 +101,7 @@ func (e *PostgreSQLExecutor) executeSQL(sql string, params map[string]interface{
 	log.Printf("Executing PostgreSQL SQL: %s", convertedSQL)
 	log.Printf("Arguments: %+v", args)
 
-	rows, err := e.db.Query(convertedSQL, args...)
+	rows, err := db.Query(convertedSQL, args...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute PostgreSQL query: %w", err)
 	}
