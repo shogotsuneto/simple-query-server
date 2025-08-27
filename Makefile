@@ -1,7 +1,7 @@
 # Simple Query Server Makefile
 # This Makefile provides convenient commands for development and testing
 
-.PHONY: help deps build clean vet fmt fmt-check test run run-test run-help api-test health queries clean-cache all
+.PHONY: help deps build clean vet fmt fmt-check test run run-test run-help api-test health queries clean-cache all integration-test integration-test-setup integration-test-cleanup
 
 # Default target
 help:
@@ -25,6 +25,11 @@ help:
 	@echo ""
 	@echo "API Testing (requires server to be running):"
 	@echo "  api-test   - Run comprehensive API tests"
+	@echo ""
+	@echo "Integration Testing:"
+	@echo "  integration-test        - Run full integration tests with Docker"
+	@echo "  integration-test-setup  - Start integration test environment only"
+	@echo "  integration-test-cleanup - Stop and clean integration test environment"
 
 # Dependency management
 deps:
@@ -92,3 +97,23 @@ api-test:
 	@echo ""
 	@echo "7. Test error handling - nonexistent query:"
 	@curl -s -X POST -H "Content-Type: application/json" -d '{}' http://localhost:8080/query/nonexistent_query | python3 -m json.tool || curl -s -X POST -H "Content-Type: application/json" -d '{}' http://localhost:8080/query/nonexistent_query
+
+# Integration testing with Docker
+integration-test:
+	@echo "Running integration tests with dedicated Docker environment..."
+	go build -o server ./cmd/server
+	cd integration && go test -v -timeout=10m
+
+integration-test-setup:
+	@echo "Building server binary for integration tests..."
+	go build -o server ./cmd/server
+	@echo "Starting integration test database..."
+	cd integration && docker compose -f docker-compose.integration.yml up -d
+	@echo "Waiting for database to be ready..."
+	@sleep 15
+	@echo "Integration test database is ready. Use 'make integration-test' to run tests."
+
+integration-test-cleanup:
+	@echo "Stopping integration test database..."
+	cd integration && docker compose -f docker-compose.integration.yml down -v
+	@echo "Integration test environment cleaned up"

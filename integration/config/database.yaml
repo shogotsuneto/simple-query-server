@@ -1,0 +1,5 @@
+# Integration test database configuration for PostgreSQL
+# Uses integration-specific connection settings with host connection
+
+type: "postgres"
+dsn: "postgres://testuser:testpass@localhost:5433/queryserver_integration_test?sslmode=disable"
