@@ -24,8 +24,6 @@ help:
 	@echo "  run-help   - Show server help"
 	@echo ""
 	@echo "API Testing (requires server to be running):"
-	@echo "  health     - Test health endpoint"
-	@echo "  queries    - List available queries"
 	@echo "  api-test   - Run comprehensive API tests"
 
 # Dependency management
@@ -72,14 +70,6 @@ run-help: build
 	./server --help
 
 # API testing (requires server to be running on port 8080)
-health:
-	@echo "Testing health endpoint..."
-	@curl -s http://localhost:8080/health | python3 -m json.tool || curl -s http://localhost:8080/health
-
-queries:
-	@echo "Listing available queries..."
-	@curl -s http://localhost:8080/queries | python3 -m json.tool || curl -s http://localhost:8080/queries
-
 api-test:
 	@echo "Running comprehensive API tests..."
 	@echo "1. Health check:"
