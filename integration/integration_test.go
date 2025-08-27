@@ -100,17 +100,24 @@ func stopIntegrationEnvironment() {
 
 // waitForServices waits for all services to be healthy and ready
 func waitForServices() error {
-	// Wait for server health endpoint
+	// Wait for server health endpoint to respond (either healthy or unhealthy)
 	client := &http.Client{Timeout: 5 * time.Second}
 	healthURL := serverBaseURL + "/health"
 
 	timeout := time.Now().Add(healthTimeout)
 	for time.Now().Before(timeout) {
 		resp, err := client.Get(healthURL)
-		if err == nil && resp.StatusCode == http.StatusOK {
-			resp.Body.Close()
-			fmt.Println("Integration test services are ready")
-			return nil
+		if err == nil && (resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusServiceUnavailable) {
+			// Server is responding, check if database is connected
+			defer resp.Body.Close()
+			
+			if resp.StatusCode == http.StatusOK {
+				fmt.Println("Integration test services are ready and database is connected")
+				return nil
+			} else {
+				// Database not ready yet, continue waiting for it to connect
+				fmt.Println("Server is ready but waiting for database connection...")
+			}
 		}
 		if resp != nil {
 			resp.Body.Close()
@@ -164,6 +171,7 @@ func TestHealthEndpoint(t *testing.T) {
 		t.Fatalf("Failed to make health request: %v", err)
 	}
 
+	// Health endpoint should return 200 when database is connected (after integration setup)
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("Expected status 200, got %d", resp.StatusCode)
 	}
@@ -173,9 +181,33 @@ func TestHealthEndpoint(t *testing.T) {
 		t.Fatalf("Failed to unmarshal health response: %v", err)
 	}
 
-	status, ok := healthResponse["status"]
-	if !ok || status != "healthy" {
-		t.Errorf("Expected status 'healthy', got %v", healthResponse)
+	// Check that we have the expected fields
+	status, statusExists := healthResponse["status"]
+	database, dbExists := healthResponse["database"]
+	
+	if !statusExists {
+		t.Errorf("Expected 'status' field in health response")
+	}
+	if !dbExists {
+		t.Errorf("Expected 'database' field in health response")
+	}
+
+	// When database is connected, status should be "healthy"
+	if status != "healthy" {
+		t.Errorf("Expected status 'healthy', got %v", status)
+	}
+
+	// Check database connection status
+	if dbMap, ok := database.(map[string]interface{}); ok {
+		connected, exists := dbMap["connected"]
+		if !exists {
+			t.Errorf("Expected 'connected' field in database status")
+		}
+		if connected != true {
+			t.Errorf("Expected database connected to be true, got %v", connected)
+		}
+	} else {
+		t.Errorf("Expected database field to be an object")
 	}
 }
 
@@ -528,4 +560,39 @@ func TestDataConsistency(t *testing.T) {
 	if !found {
 		t.Errorf("User with ID %d not found in search results", userID)
 	}
+}
+
+// TestDatabaseReconnection tests that the server handles database disconnections gracefully
+func TestDatabaseReconnection(t *testing.T) {
+	// First verify that database is healthy
+	resp, body, err := makeRequest("GET", serverBaseURL+"/health", nil)
+	if err != nil {
+		t.Fatalf("Failed to make health request: %v", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("Expected healthy database, got status %d", resp.StatusCode)
+	}
+
+	var healthResponse map[string]interface{}
+	if err := json.Unmarshal(body, &healthResponse); err != nil {
+		t.Fatalf("Failed to unmarshal health response: %v", err)
+	}
+
+	if healthResponse["status"] != "healthy" {
+		t.Fatalf("Expected healthy status, got %v", healthResponse["status"])
+	}
+
+	// Test that queries work when database is healthy
+	resp, _, err = makeRequest("POST", serverBaseURL+"/query/get_all_active_users", map[string]interface{}{})
+	if err != nil {
+		t.Fatalf("Failed to execute query with healthy database: %v", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("Expected successful query execution with healthy database, got status %d", resp.StatusCode)
+	}
+
+	// Note: We don't test actual disconnection in integration tests to avoid disrupting other tests
+	// The database connection retry logic is tested by starting the server without database first
 }

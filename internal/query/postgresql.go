@@ -6,6 +6,7 @@ import (
 	"log"
 	"regexp"
 	"strings"
+	"time"
 
 	_ "github.com/lib/pq" // PostgreSQL driver
 	"github.com/shogotsuneto/simple-query-server/internal/config"
@@ -17,15 +18,25 @@ type PostgreSQLExecutor struct {
 	db       *sql.DB
 }
 
+const (
+	// Connection retry configuration
+	maxRetries = 5
+	baseDelay  = 1 * time.Second
+	maxDelay   = 30 * time.Second
+)
+
 // NewPostgreSQLExecutor creates a new PostgreSQL query executor
 func NewPostgreSQLExecutor(dbConfig *config.DatabaseConfig) (*PostgreSQLExecutor, error) {
 	executor := &PostgreSQLExecutor{
 		dbConfig: dbConfig,
 	}
 
-	// Connect to database - fail if connection fails
-	if err := executor.connect(); err != nil {
-		return nil, fmt.Errorf("failed to connect to PostgreSQL database: %w", err)
+	// Try to connect initially, but don't fail if it doesn't work
+	// The connection will be retried later when needed
+	err := executor.connect()
+	if err != nil {
+		log.Printf("Initial database connection failed: %v", err)
+		log.Printf("Server will continue starting, database connection will be retried when needed")
 	}
 
 	return executor, nil
@@ -41,9 +52,9 @@ func (e *PostgreSQLExecutor) Execute(queryConfig config.Query, params map[string
 		return nil, err
 	}
 
-	// Execute SQL query against the database
-	if e.db == nil {
-		return nil, fmt.Errorf("no database connection available")
+	// Ensure we have a database connection
+	if err := e.ensureConnection(); err != nil {
+		return nil, fmt.Errorf("database connection failed: %w", err)
 	}
 
 	return e.executeSQL(queryConfig.SQL, params)
@@ -99,6 +110,68 @@ func (e *PostgreSQLExecutor) connect() error {
 
 	log.Printf("Successfully connected to PostgreSQL database")
 	return nil
+}
+
+// ensureConnection ensures we have a working database connection, with retry logic
+func (e *PostgreSQLExecutor) ensureConnection() error {
+	// If we have a connection, test it first
+	if e.db != nil {
+		if err := e.db.Ping(); err == nil {
+			return nil // Connection is good
+		} else {
+			// Connection is bad, clean it up
+			log.Printf("Existing database connection failed ping: %v", err)
+			e.db.Close()
+			e.db = nil
+		}
+	}
+
+	// Try to connect with retries
+	delay := baseDelay
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		log.Printf("Attempting database connection (attempt %d/%d)...", attempt, maxRetries)
+		
+		if err := e.connect(); err != nil {
+			log.Printf("Database connection attempt %d failed: %v", attempt, err)
+			
+			if attempt < maxRetries {
+				log.Printf("Retrying in %v...", delay)
+				time.Sleep(delay)
+				// Exponential backoff with max delay
+				delay = delay * 2
+				if delay > maxDelay {
+					delay = maxDelay
+				}
+			} else {
+				return fmt.Errorf("failed to connect after %d attempts: %w", maxRetries, err)
+			}
+		} else {
+			log.Printf("Database connection established successfully on attempt %d", attempt)
+			return nil
+		}
+	}
+	
+	return fmt.Errorf("failed to connect after %d attempts", maxRetries)
+}
+
+// IsHealthy returns true if the database connection is healthy
+func (e *PostgreSQLExecutor) IsHealthy() bool {
+	if e.db == nil {
+		// Try to connect without retries for health check
+		if err := e.connect(); err != nil {
+			return false
+		}
+	}
+	
+	// Quick ping to verify connection is still alive
+	if err := e.db.Ping(); err != nil {
+		log.Printf("Database health check failed: %v", err)
+		e.db.Close()
+		e.db = nil
+		return false
+	}
+	
+	return true
 }
 
 // Close closes the database connection

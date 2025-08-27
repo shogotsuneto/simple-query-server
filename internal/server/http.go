@@ -82,11 +82,29 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	response := map[string]string{
-		"status": "healthy",
+	// Check database health
+	dbHealthy := s.executor.IsHealthy()
+	
+	var status string
+	var statusCode int
+	
+	if dbHealthy {
+		status = "healthy"
+		statusCode = http.StatusOK
+	} else {
+		status = "unhealthy"
+		statusCode = http.StatusServiceUnavailable
+	}
+
+	response := map[string]interface{}{
+		"status": status,
+		"database": map[string]bool{
+			"connected": dbHealthy,
+		},
 	}
 
 	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(statusCode)
 	json.NewEncoder(w).Encode(response)
 }
 

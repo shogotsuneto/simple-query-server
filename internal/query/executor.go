@@ -27,6 +27,10 @@ type QueryExecutor interface {
 	// Close releases database resources and closes the connection.
 	// Should be called when the executor is no longer needed.
 	Close() error
+
+	// IsHealthy returns true if the database connection is healthy and ready to serve requests.
+	// This method should perform a quick health check (e.g., ping) to verify connectivity.
+	IsHealthy() bool
 }
 
 // NewQueryExecutor creates a new query executor based on database type
