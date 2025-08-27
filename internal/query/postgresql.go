@@ -130,10 +130,10 @@ func (e *PostgreSQLExecutor) ensureConnection() error {
 	delay := baseDelay
 	for attempt := 1; attempt <= maxRetries; attempt++ {
 		log.Printf("Attempting database connection (attempt %d/%d)...", attempt, maxRetries)
-		
+
 		if err := e.connect(); err != nil {
 			log.Printf("Database connection attempt %d failed: %v", attempt, err)
-			
+
 			if attempt < maxRetries {
 				log.Printf("Retrying in %v...", delay)
 				time.Sleep(delay)
@@ -150,7 +150,7 @@ func (e *PostgreSQLExecutor) ensureConnection() error {
 			return nil
 		}
 	}
-	
+
 	return fmt.Errorf("failed to connect after %d attempts", maxRetries)
 }
 
@@ -162,7 +162,7 @@ func (e *PostgreSQLExecutor) IsHealthy() bool {
 			return false
 		}
 	}
-	
+
 	// Quick ping to verify connection is still alive
 	if err := e.db.Ping(); err != nil {
 		log.Printf("Database health check failed: %v", err)
@@ -170,7 +170,7 @@ func (e *PostgreSQLExecutor) IsHealthy() bool {
 		e.db = nil
 		return false
 	}
-	
+
 	return true
 }
 

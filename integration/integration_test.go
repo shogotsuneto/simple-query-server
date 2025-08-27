@@ -20,8 +20,8 @@ const (
 )
 
 var (
-	serverCmd *exec.Cmd
-	serverCtx context.Context
+	serverCmd    *exec.Cmd
+	serverCtx    context.Context
 	cancelServer context.CancelFunc
 )
 
@@ -69,7 +69,7 @@ func startIntegrationEnvironment() error {
 		"--db-config", "./config/database.yaml",
 		"--queries-config", "./config/queries.yaml",
 		"--port", "8081")
-	
+
 	serverCmd.Dir = "."
 	serverCmd.Stdout = os.Stdout
 	serverCmd.Stderr = os.Stderr
@@ -110,7 +110,7 @@ func waitForServices() error {
 		if err == nil && (resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusServiceUnavailable) {
 			// Server is responding, check if database is connected
 			defer resp.Body.Close()
-			
+
 			if resp.StatusCode == http.StatusOK {
 				fmt.Println("Integration test services are ready and database is connected")
 				return nil
@@ -184,7 +184,7 @@ func TestHealthEndpoint(t *testing.T) {
 	// Check that we have the expected fields
 	status, statusExists := healthResponse["status"]
 	database, dbExists := healthResponse["database"]
-	
+
 	if !statusExists {
 		t.Errorf("Expected 'status' field in health response")
 	}
@@ -512,7 +512,7 @@ func TestDataConsistency(t *testing.T) {
 	userID := 1
 
 	// Get user by ID
-	resp1, body1, err := makeRequest("POST", serverBaseURL+"/query/get_user_by_id", 
+	resp1, body1, err := makeRequest("POST", serverBaseURL+"/query/get_user_by_id",
 		map[string]interface{}{"id": userID})
 	if err != nil || resp1.StatusCode != http.StatusOK {
 		t.Fatalf("Failed to get user by ID: %v", err)

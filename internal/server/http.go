@@ -84,10 +84,10 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 
 	// Check database health
 	dbHealthy := s.executor.IsHealthy()
-	
+
 	var status string
 	var statusCode int
-	
+
 	if dbHealthy {
 		status = "healthy"
 		statusCode = http.StatusOK
