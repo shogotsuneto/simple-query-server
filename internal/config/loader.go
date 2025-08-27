@@ -9,9 +9,8 @@ import (
 
 // DatabaseConfig represents the database configuration
 type DatabaseConfig struct {
-	Type        string            `yaml:"type"`        // e.g., "postgres", "mysql", "sqlite"
-	DSN         string            `yaml:"dsn"`         // Data Source Name
-	Credentials map[string]string `yaml:"credentials"` // Additional credentials if needed
+	Type string `yaml:"type"` // e.g., "postgres", "mysql", "sqlite"
+	DSN  string `yaml:"dsn"`  // Data Source Name
 }
 
 // QueryParam represents a parameter for a query

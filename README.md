@@ -11,7 +11,8 @@ The `simple-query-server` allows you to define database queries in YAML configur
 - **YAML Configuration**: Define database connections and queries in separate YAML files
 - **HTTP API**: Execute queries via REST endpoints with JSON payloads
 - **Parameter Validation**: Automatic validation of query parameters
-- **Multiple Database Support**: Designed to support PostgreSQL, MySQL, and SQLite (with mock responses for now)
+- **PostgreSQL Support**: Full PostgreSQL database support with connection pooling
+- **Docker Integration**: Complete PostgreSQL setup with docker-compose
 - **Command Line Interface**: Flexible configuration via CLI flags
 
 ## Project Structure
@@ -22,18 +23,22 @@ simple-query-server/
 │   └── server/
 │       └── main.go           # Main entry point
 ├── example/
-│   ├── database.yaml         # Example database configuration
-│   └── queries.yaml          # Example queries configuration
+│   ├── database.yaml         # Example database configuration (PostgreSQL)
+│   ├── queries.yaml          # Example queries configuration
+│   └── sql/
+│       ├── schema.sql        # Database schema (tables, indexes, functions)
+│       └── data.sql          # Sample data for testing
 ├── internal/
 │   ├── config/
 │   │   └── loader.go         # YAML configuration loading
 │   ├── query/
-│   │   └── executor.go       # Query execution engine
+│   │   └── executor.go       # Query execution engine (PostgreSQL)
 │   └── server/
 │       └── http.go           # HTTP server and routing
 ├── testdata/
 │   ├── database.yaml         # Test database configuration
 │   └── queries.yaml          # Test queries configuration
+├── docker-compose.yml        # PostgreSQL database setup
 ├── go.mod
 ├── go.sum
 └── README.md
@@ -41,36 +46,69 @@ simple-query-server/
 
 ## Installation and Build
 
-1. **Prerequisites**: Go 1.18 or later
+### Prerequisites
+- Go 1.18 or later
+- Docker and Docker Compose (for PostgreSQL database)
 
-2. **Clone the repository**:
+### Quick Start with PostgreSQL
+
+1. **Clone the repository**:
    ```bash
    git clone https://github.com/shogotsuneto/simple-query-server
    cd simple-query-server
    ```
 
-3. **Build the binary**:
+2. **Start PostgreSQL database**:
    ```bash
-   go build -o server ./cmd/server
+   docker compose up -d postgres
    ```
+
+3. **Build and start the server**:
+   ```bash
+   make build
+   make run
+   ```
+
+4. **Test the API**:
+   ```bash
+   make api-test
+   ```
+
+### Manual Build
+
+If you prefer to build manually without make:
+
+```bash
+go build -o server ./cmd/server
+./server --db-config ./example/database.yaml --queries-config ./example/queries.yaml --port 8080
+```
 
 ## Configuration
 
+The server requires two YAML configuration files to run:
+
 ### Database Configuration (`database.yaml`)
 
-```yaml
-type: "postgres"  # Supported: postgres, mysql, sqlite
-dsn: "postgres://username:password@localhost:5432/database_name?sslmode=disable"
+For PostgreSQL (recommended):
 
-# Optional: separate credentials
-credentials:
-  username: "your_username"
-  password: "your_password"
-  host: "localhost"
-  port: "5432"
-  database: "your_database"
-  sslmode: "disable"
+```yaml
+type: "postgres"
+dsn: "postgres://queryuser:querypass@localhost:5432/queryserver?sslmode=disable"
 ```
+
+For other databases (future support):
+
+```yaml
+# MySQL (not yet implemented)
+type: "mysql" 
+dsn: "username:password@tcp(localhost:3306)/database_name"
+
+# SQLite (not yet implemented)
+type: "sqlite"
+dsn: "./data.db"
+```
+
+**Note**: Currently only PostgreSQL is supported. Database connection is required - the server will fail to start if no valid database connection is available.
 
 ### Queries Configuration (`queries.yaml`)
 
@@ -93,15 +131,30 @@ queries:
 
 ### Starting the Server
 
+With PostgreSQL (recommended):
+
 ```bash
+# Start PostgreSQL database first
+docker compose up -d postgres
+
+# Start the server
 ./server --db-config ./example/database.yaml --queries-config ./example/queries.yaml
+```
+
+Or using make commands:
+
+```bash
+make run      # Uses example configuration
+make run-test # Uses test configuration on port 8081
 ```
 
 **Options:**
 - `--db-config`: Path to database configuration YAML file (required)
-- `--queries-config`: Path to queries configuration YAML file (required)
+- `--queries-config`: Path to queries configuration YAML file (required)  
 - `--port`: Port to run the server on (default: 8080)
 - `--help`: Show help message
+
+**Database Connection**: The server requires a valid database connection. If the connection fails, the server will exit with an error message.
 
 ### API Endpoints
 
@@ -132,7 +185,7 @@ Content-Type: application/json
 1. **Get user by ID**:
    ```bash
    curl -X POST -H "Content-Type: application/json" \
-        -d '{"id": 123}' \
+        -d '{"id": 1}' \
         http://localhost:8080/query/get_user_by_id
    ```
 
@@ -143,9 +196,28 @@ Content-Type: application/json
         http://localhost:8080/query/search_users
    ```
 
+3. **Get all active users**:
+   ```bash
+   curl -X POST -H "Content-Type: application/json" \
+        -d '{}' \
+        http://localhost:8080/query/get_all_active_users
+   ```
+
+4. **List users with pagination**:
+   ```bash
+   curl -X POST -H "Content-Type: application/json" \
+        -d '{"limit": 5, "offset": 0}' \
+        http://localhost:8080/query/list_users
+   ```
+
 3. **List available queries**:
    ```bash
    curl http://localhost:8080/queries
+   ```
+
+5. **Comprehensive API testing**:
+   ```bash
+   make api-test
    ```
 
 ### Response Format
@@ -155,12 +227,17 @@ Content-Type: application/json
 {
   "rows": [
     {
-      "id": 123,
-      "name": "Alice",
-      "email": "alice@example.com"
+      "id": 1,
+      "name": "Alice Smith",
+      "email": "alice.smith@example.com"
     }
   ]
 }
+```
+
+**Empty Result Response:**
+```json
+{}
 ```
 
 **Error Response:**
@@ -176,13 +253,14 @@ Content-Type: application/json
 - ✅ YAML configuration loading and validation
 - ✅ HTTP server with REST API endpoints
 - ✅ Parameter validation and type checking
-- ✅ Mock query responses for demonstration
+- ✅ **PostgreSQL database connection and query execution**
+- ✅ **SQL parameter binding with :param syntax**
+- ✅ **Docker Compose setup with sample database**
 - ✅ Command-line interface with flags
 - ✅ Error handling and logging
 
 **TODO (for production use):**
-- [ ] Actual database connection implementation
-- [ ] SQL parameter binding (currently using mock responses)
+- [ ] MySQL and SQLite database support
 - [ ] Database connection pooling
 - [ ] Query result caching
 - [ ] Authentication and authorization

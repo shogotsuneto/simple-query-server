@@ -79,7 +79,7 @@ api-test:
 	@curl -s http://localhost:8080/queries | python3 -m json.tool || curl -s http://localhost:8080/queries
 	@echo ""
 	@echo "3. Get user by ID:"
-	@curl -s -X POST -H "Content-Type: application/json" -d '{"id": 123}' http://localhost:8080/query/get_user_by_id | python3 -m json.tool || curl -s -X POST -H "Content-Type: application/json" -d '{"id": 123}' http://localhost:8080/query/get_user_by_id
+	@curl -s -X POST -H "Content-Type: application/json" -d '{"id": 2}' http://localhost:8080/query/get_user_by_id | python3 -m json.tool || curl -s -X POST -H "Content-Type: application/json" -d '{"id": 2}' http://localhost:8080/query/get_user_by_id
 	@echo ""
 	@echo "4. Get all active users:"
 	@curl -s -X POST -H "Content-Type: application/json" -d '{}' http://localhost:8080/query/get_all_active_users | python3 -m json.tool || curl -s -X POST -H "Content-Type: application/json" -d '{}' http://localhost:8080/query/get_all_active_users
