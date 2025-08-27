@@ -1,0 +1,51 @@
+# Docker Compose setup for simple-query-server with PostgreSQL
+# This provides a complete development environment with PostgreSQL database
+
+services:
+  # PostgreSQL database service
+  postgres:
+    image: postgres:15
+    container_name: simple-query-server-postgres
+    environment:
+      POSTGRES_DB: queryserver
+      POSTGRES_USER: queryuser
+      POSTGRES_PASSWORD: querypass
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --lc-collate=C --lc-ctype=C"
+    ports:
+      - "5432:5432"
+    volumes:
+      # Mount SQL initialization scripts
+      - ./sql/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql
+      - ./sql/data.sql:/docker-entrypoint-initdb.d/02-data.sql
+    networks:
+      - queryserver-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U queryuser -d queryserver"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Optional: PgAdmin for database management (accessible at http://localhost:5050)
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: simple-query-server-pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@example.com
+      PGADMIN_DEFAULT_PASSWORD: admin
+      PGADMIN_CONFIG_SERVER_MODE: "False"
+    ports:
+      - "5050:80"
+    depends_on:
+      - postgres
+    networks:
+      - queryserver-network
+    profiles:
+      - admin  # Only start with --profile admin
+
+networks:
+  queryserver-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+    driver: local

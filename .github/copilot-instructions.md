@@ -4,7 +4,7 @@
 
 ## Overview
 
-The `simple-query-server` is a lightweight Go HTTP server that exposes database queries defined in YAML configuration files as REST API endpoints. It currently uses mock responses for demonstration purposes but is designed to support PostgreSQL, MySQL, and SQLite databases.
+The `simple-query-server` is a lightweight Go HTTP server that exposes database queries defined in YAML configuration files as REST API endpoints. It now supports PostgreSQL databases with full query execution, parameter binding, and automatic fallback to mock responses when database is unavailable.
 
 ## Code Change Guidelines
 
@@ -28,7 +28,8 @@ The `simple-query-server` is a lightweight Go HTTP server that exposes database 
 ### Prerequisites and Setup
 
 - Go 1.18 or later is required (Go 1.24.6 confirmed working)
-- No additional dependencies beyond what's in go.mod
+- Docker and Docker Compose for PostgreSQL database
+- Dependencies: gopkg.in/yaml.v3 and github.com/lib/pq (PostgreSQL driver)
 
 ### Makefile Commands
 
@@ -112,6 +113,16 @@ make test
 
 ### Running the Application
 
+**Start PostgreSQL database first:**
+
+```bash
+docker compose up -d postgres
+```
+
+- Takes ~30 seconds first time (downloads PostgreSQL image)
+- Subsequently takes ~5 seconds
+- Database is initialized with schema and sample data
+
 **Start the server with example configuration:**
 
 ```bash
@@ -120,6 +131,8 @@ make run
 ```
 
 - Server starts in ~3 seconds
+- Automatically connects to PostgreSQL if available
+- Falls back to mock responses if database connection fails
 - Requires both --db-config and --queries-config flags
 - Default port is 8080 if not specified
 
@@ -168,10 +181,10 @@ Expected response: JSON object with all configured queries and their parameters
 ### Execute Query with Parameters
 
 ```bash
-curl -X POST -H "Content-Type: application/json" -d '{"id": 123}' http://localhost:8080/query/get_user_by_id
+curl -X POST -H "Content-Type: application/json" -d '{"id": 2}' http://localhost:8080/query/get_user_by_id
 ```
 
-Expected response: `{"rows":[{"email":"user123@example.com","id":123,"name":"User 123"}]}`
+Expected response: `{"rows":[{"email":"bob.johnson@example.com","id":2,"name":"Bob Johnson"}]}`
 
 ### Execute Query without Parameters
 
@@ -179,7 +192,7 @@ Expected response: `{"rows":[{"email":"user123@example.com","id":123,"name":"Use
 curl -X POST -H "Content-Type: application/json" -d '{}' http://localhost:8080/query/get_all_active_users
 ```
 
-Expected response: JSON with mock user data
+Expected response: JSON with PostgreSQL user data (19 active users from sample database)
 
 ### Test Search Query
 
@@ -187,7 +200,7 @@ Expected response: JSON with mock user data
 curl -X POST -H "Content-Type: application/json" -d '{"name": "%Alice%"}' http://localhost:8080/query/search_users
 ```
 
-Expected response: JSON with mock Alice user data
+Expected response: JSON with Alice users from PostgreSQL database (Alice Smith, Alice Johnson, Alice Brown)
 
 ### Test Error Handling
 
@@ -225,13 +238,14 @@ The server requires two YAML configuration files:
 
 - Defines database connection settings (type, DSN, credentials)
 - Example locations: `./example/database.yaml`, `./testdata/database.yaml`
-- Currently supports postgres, mysql, sqlite (mock responses only)
+- Currently supports PostgreSQL (full implementation) with fallback to mock responses
 
 ### Queries Configuration (queries.yaml)
 
 - Defines available queries with SQL and parameter definitions
 - Example locations: `./example/queries.yaml`, `./testdata/queries.yaml`
 - Each query has a name, SQL statement, and parameter list with types
+- Uses `:parameter_name` syntax for parameter binding
 
 ## Project Structure
 
@@ -239,18 +253,25 @@ The server requires two YAML configuration files:
 simple-query-server/
 ├── cmd/server/main.go           # Main entry point - CLI flag handling and server startup
 ├── internal/config/loader.go    # YAML configuration loading and validation
-├── internal/query/executor.go   # Query execution engine (currently mock responses)
+├── internal/query/executor.go   # Query execution engine (PostgreSQL + mock fallback)
 ├── internal/server/http.go      # HTTP server and REST API routing
-├── example/                     # Example configuration files for demo
+├── sql/schema.sql               # PostgreSQL database schema
+├── sql/data.sql                 # Sample data for PostgreSQL
+├── example/                     # Example configuration files (PostgreSQL)
 ├── testdata/                    # Test configuration files
-└── go.mod                       # Go module definition
+├── docker-compose.yml           # PostgreSQL database setup
+├── docker-README.md             # Docker setup instructions
+└── go.mod                       # Go module definition with PostgreSQL driver
 ```
 
 ## Key Implementation Details
 
-- **Mock Responses**: All database queries currently return mock data based on SQL pattern matching
+- **PostgreSQL Support**: Full PostgreSQL database integration with real query execution
+- **Parameter Binding**: Converts `:param` syntax to PostgreSQL `$1, $2...` parameter binding
+- **Mock Fallback**: Automatically falls back to mock responses if database connection fails
 - **Parameter Validation**: Automatic validation of query parameters with type checking
-- **Error Handling**: Comprehensive error responses for missing configs, invalid queries, etc.
+- **Error Handling**: Comprehensive error responses for missing configs, invalid queries, database errors, etc.
+- **Docker Integration**: Complete PostgreSQL setup with docker-compose, schema, and sample data
 - **No Tests**: Currently no automated tests exist - manual API validation is required
 
 ## Development Workflow
@@ -264,6 +285,7 @@ simple-query-server/
 
 2. **Test your changes:**
 
+   - Start database: `docker compose up -d postgres`
    - Start server: `make run`
    - Run API validation: `make api-test`
    - Verify responses match expected output
@@ -284,6 +306,7 @@ simple-query-server/
 ## Common Issues
 
 - **Server won't start**: Check that both --db-config and --queries-config flags are provided
+- **Database connection failed**: Ensure PostgreSQL is running (`docker compose up -d postgres`) and connection details are correct
 - **Query not found**: Verify query name matches exactly what's defined in queries.yaml
 - **Parameter validation error**: Check parameter names and types match query definition
 - **Build failures**: Ensure Go 1.18+ is installed and go.mod is clean
@@ -293,7 +316,8 @@ simple-query-server/
 - NEVER CANCEL builds - first build takes ~11 seconds, subsequent builds <1 second
 - Always test with actual API calls after making changes - simply starting/stopping the server is insufficient
 - ALWAYS run through complete end-to-end validation scenarios after making changes
-- The server uses mock responses - no actual database connection is made
+- The server connects to PostgreSQL when available, falls back to mock responses when not
+- PostgreSQL database includes 23 sample users with various statuses for testing
 - Configuration files must be valid YAML with proper structure
-- Parameter binding uses `:parameter_name` syntax in SQL queries
+- Parameter binding uses `:parameter_name` syntax in SQL queries (converted to PostgreSQL `$1, $2...` format)
 - Clean builds require downloading dependencies: `go clean -cache -modcache` before building

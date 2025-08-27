@@ -1,24 +1,20 @@
-# Example database configuration
-# This file defines the database connection settings
+# Example database configuration for PostgreSQL
+# This file defines the database connection settings for the docker-compose PostgreSQL instance
 
-type: "postgres"  # Supported types: postgres, mysql, sqlite
-dsn: "postgres://username:password@localhost:5432/database_name?sslmode=disable"
+type: "postgres"
+dsn: "postgres://queryuser:querypass@localhost:5432/queryserver?sslmode=disable"
 
-# Optional credentials (can be used instead of embedding in DSN)
-credentials:
-  username: "your_username"
-  password: "your_password"
-  host: "localhost"
-  port: "5432"
-  database: "your_database"
-  sslmode: "disable"
+# Alternative: using separate credentials (optional)
+# credentials:
+#   username: "queryuser"
+#   password: "querypass"
+#   host: "localhost"
+#   port: "5432"
+#   database: "queryserver"
+#   sslmode: "disable"
 
-# Alternative examples:
+# For production, consider using environment variables:
+# dsn: "postgres://queryuser:querypass@postgres:5432/queryserver?sslmode=disable"
 #
-# For MySQL:
-# type: "mysql"
-# dsn: "username:password@tcp(localhost:3306)/database_name"
-#
-# For SQLite:
-# type: "sqlite"
-# dsn: "./data.db"
+# Or with SSL enabled:
+# dsn: "postgres://queryuser:querypass@localhost:5432/queryserver?sslmode=require"
