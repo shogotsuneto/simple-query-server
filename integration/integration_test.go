@@ -373,14 +373,14 @@ func TestQueryExecutionErrors(t *testing.T) {
 			name:              "Missing required parameter",
 			queryName:         "get_user_by_id",
 			params:            map[string]interface{}{},
-			expectedStatus:    http.StatusInternalServerError,
+			expectedStatus:    http.StatusBadRequest,
 			expectedErrorText: "required parameter 'id' is missing",
 		},
 		{
 			name:              "Wrong parameter type",
 			queryName:         "get_user_by_id",
 			params:            map[string]interface{}{"id": "not_a_number"},
-			expectedStatus:    http.StatusInternalServerError,
+			expectedStatus:    http.StatusBadRequest,
 			expectedErrorText: "",
 		},
 		{
@@ -401,7 +401,7 @@ func TestQueryExecutionErrors(t *testing.T) {
 			name:              "Partial parameters for multiple param query",
 			queryName:         "test_multiple_params",
 			params:            map[string]interface{}{"min_id": 1},
-			expectedStatus:    http.StatusInternalServerError,
+			expectedStatus:    http.StatusBadRequest,
 			expectedErrorText: "required parameter 'max_id' is missing",
 		},
 	}

@@ -163,7 +163,12 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 	rows, err := s.executor.Execute(queryConfig, params)
 	if err != nil {
 		log.Printf("Query execution error: %v", err)
-		s.writeErrorResponse(w, err.Error(), http.StatusInternalServerError)
+		// Check if this is a client error (invalid parameters) vs server error
+		if query.IsClientError(err) {
+			s.writeErrorResponse(w, err.Error(), http.StatusBadRequest)
+		} else {
+			s.writeErrorResponse(w, err.Error(), http.StatusInternalServerError)
+		}
 		return
 	}
 
