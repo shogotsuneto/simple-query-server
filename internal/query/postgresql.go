@@ -1,11 +1,13 @@
 package query
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"log"
 	"regexp"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	_ "github.com/lib/pq" // PostgreSQL driver
@@ -14,8 +16,10 @@ import (
 
 // PostgreSQLExecutor handles query execution against PostgreSQL databases
 type PostgreSQLExecutor struct {
-	dbConfig *config.DatabaseConfig
-	db       *sql.DB
+	dbConfig      *config.DatabaseConfig
+	db            *sql.DB
+	healthy       int64  // atomic boolean for health status
+	cancel        context.CancelFunc // for stopping the health check goroutine
 }
 
 const (
@@ -23,12 +27,17 @@ const (
 	maxRetries = 5
 	baseDelay  = 1 * time.Second
 	maxDelay   = 30 * time.Second
+	// Health check interval
+	healthCheckInterval = 30 * time.Second
 )
 
 // NewPostgreSQLExecutor creates a new PostgreSQL query executor
 func NewPostgreSQLExecutor(dbConfig *config.DatabaseConfig) (*PostgreSQLExecutor, error) {
+	ctx, cancel := context.WithCancel(context.Background())
+	
 	executor := &PostgreSQLExecutor{
 		dbConfig: dbConfig,
+		cancel:   cancel,
 	}
 
 	// Try to connect initially, but don't fail if it doesn't work
@@ -37,7 +46,13 @@ func NewPostgreSQLExecutor(dbConfig *config.DatabaseConfig) (*PostgreSQLExecutor
 	if err != nil {
 		log.Printf("Initial database connection failed: %v", err)
 		log.Printf("Server will continue starting, database connection will be retried when needed")
+		atomic.StoreInt64(&executor.healthy, 0) // unhealthy
+	} else {
+		atomic.StoreInt64(&executor.healthy, 1) // healthy
 	}
+
+	// Start background health monitoring
+	go executor.healthMonitor(ctx)
 
 	return executor, nil
 }
@@ -52,8 +67,8 @@ func (e *PostgreSQLExecutor) Execute(queryConfig config.Query, params map[string
 		return nil, err
 	}
 
-	// Ensure we have a database connection
-	if err := e.ensureConnection(); err != nil {
+	// Ensure we have a database connection (but without ping)
+	if err := e.ensureConnectionNoPing(); err != nil {
 		return nil, fmt.Errorf("database connection failed: %w", err)
 	}
 
@@ -112,18 +127,11 @@ func (e *PostgreSQLExecutor) connect() error {
 	return nil
 }
 
-// ensureConnection ensures we have a working database connection, with retry logic
-func (e *PostgreSQLExecutor) ensureConnection() error {
-	// If we have a connection, test it first
+// ensureConnectionNoPing ensures we have a database connection without ping checks
+func (e *PostgreSQLExecutor) ensureConnectionNoPing() error {
+	// If we have a connection, assume it's good (health monitor handles health checks)
 	if e.db != nil {
-		if err := e.db.Ping(); err == nil {
-			return nil // Connection is good
-		} else {
-			// Connection is bad, clean it up
-			log.Printf("Existing database connection failed ping: %v", err)
-			e.db.Close()
-			e.db = nil
-		}
+		return nil
 	}
 
 	// Try to connect with retries
@@ -154,12 +162,28 @@ func (e *PostgreSQLExecutor) ensureConnection() error {
 	return fmt.Errorf("failed to connect after %d attempts", maxRetries)
 }
 
-// IsHealthy returns true if the database connection is healthy
-func (e *PostgreSQLExecutor) IsHealthy() bool {
+// healthMonitor runs periodic health checks in the background
+func (e *PostgreSQLExecutor) healthMonitor(ctx context.Context) {
+	ticker := time.NewTicker(healthCheckInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			e.performHealthCheck()
+		}
+	}
+}
+
+// performHealthCheck performs a health check and updates the cached status
+func (e *PostgreSQLExecutor) performHealthCheck() {
 	if e.db == nil {
 		// Try to connect without retries for health check
 		if err := e.connect(); err != nil {
-			return false
+			atomic.StoreInt64(&e.healthy, 0) // unhealthy
+			return
 		}
 	}
 
@@ -168,17 +192,29 @@ func (e *PostgreSQLExecutor) IsHealthy() bool {
 		log.Printf("Database health check failed: %v", err)
 		e.db.Close()
 		e.db = nil
-		return false
+		atomic.StoreInt64(&e.healthy, 0) // unhealthy
+	} else {
+		atomic.StoreInt64(&e.healthy, 1) // healthy
 	}
-
-	return true
 }
 
-// Close closes the database connection
+// IsHealthy returns the cached health status without performing a ping
+func (e *PostgreSQLExecutor) IsHealthy() bool {
+	return atomic.LoadInt64(&e.healthy) == 1
+}
+
+// Close closes the database connection and stops the health monitor
 func (e *PostgreSQLExecutor) Close() error {
+	// Stop the health monitor
+	if e.cancel != nil {
+		e.cancel()
+	}
+	
+	// Close database connection
 	if e.db != nil {
 		err := e.db.Close()
 		e.db = nil
+		atomic.StoreInt64(&e.healthy, 0) // unhealthy
 		return err
 	}
 	return nil
