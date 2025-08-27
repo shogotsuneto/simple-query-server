@@ -25,14 +25,14 @@ const (
 type PostgreSQLManager struct {
 	dbConfig *config.DatabaseConfig
 	db       *sql.DB
-	healthy  int64             // atomic boolean for health status
+	healthy  int64              // atomic boolean for health status
 	cancel   context.CancelFunc // for stopping the health check goroutine
 }
 
 // NewPostgreSQLManager creates a new PostgreSQL database connection manager
 func NewPostgreSQLManager(dbConfig *config.DatabaseConfig) (*PostgreSQLManager, error) {
 	ctx, cancel := context.WithCancel(context.Background())
-	
+
 	manager := &PostgreSQLManager{
 		dbConfig: dbConfig,
 		cancel:   cancel,
@@ -60,7 +60,7 @@ func (m *PostgreSQLManager) Close() error {
 	if m.cancel != nil {
 		m.cancel()
 	}
-	
+
 	// Close database connection
 	if m.db != nil {
 		err := m.db.Close()
@@ -75,7 +75,7 @@ func (m *PostgreSQLManager) Close() error {
 func (m *PostgreSQLManager) connectionManager(ctx context.Context) {
 	// Try initial connection
 	m.tryConnect()
-	
+
 	ticker := time.NewTicker(healthCheckInterval)
 	defer ticker.Stop()
 
