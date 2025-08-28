@@ -70,7 +70,7 @@ queries:
         type: string
 
   # Test query that can use both middleware and request body parameters
-  get_user_with_tenant:
+  get_user_by_status:
     sql: "SELECT id, name, email FROM users WHERE id = CAST(:user_id AS INTEGER) AND status = :status"
     params:
       - name: status
