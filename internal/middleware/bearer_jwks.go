@@ -1,16 +1,12 @@
 package middleware
 
 import (
-	"context"
-	"crypto/rsa"
 	"fmt"
 	"net/http"
 	"strings"
-	"sync"
 	"time"
 
-	"github.com/golang-jwt/jwt/v5"
-	"github.com/lestrrat-go/jwx/v2/jwk"
+	"github.com/shogotsuneto/simple-query-server/internal/jwt"
 )
 
 // BearerJWKSConfig represents the configuration for bearer JWKS middleware
@@ -20,24 +16,28 @@ type BearerJWKSConfig struct {
 	ClaimsMapping map[string]string `yaml:"claims_mapping"` // Map JWT claims to SQL parameters
 	Issuer        string            `yaml:"issuer"`         // Expected issuer for validation (optional)
 	Audience      string            `yaml:"audience"`       // Expected audience for validation (optional)
+	CacheTTL      string            `yaml:"cache_ttl"`      // Cache TTL for JWKS (optional, default: 10m)
 }
 
 // BearerJWKSMiddleware verifies JWT tokens using JWKS and injects claims as SQL parameters
 type BearerJWKSMiddleware struct {
-	config   BearerJWKSConfig
-	keyCache map[string]*rsa.PublicKey
-	cacheMu  sync.RWMutex
-	client   *http.Client
+	config     BearerJWKSConfig
+	jwksClient *jwt.JWKSClient
 }
 
 // NewBearerJWKSMiddleware creates a new bearer JWKS middleware
 func NewBearerJWKSMiddleware(config BearerJWKSConfig) *BearerJWKSMiddleware {
+	// Parse cache TTL, default to 10 minutes
+	cacheTTL := 10 * time.Minute
+	if config.CacheTTL != "" {
+		if parsedTTL, err := time.ParseDuration(config.CacheTTL); err == nil {
+			cacheTTL = parsedTTL
+		}
+	}
+
 	return &BearerJWKSMiddleware{
-		config:   config,
-		keyCache: make(map[string]*rsa.PublicKey),
-		client: &http.Client{
-			Timeout: 10 * time.Second,
-		},
+		config:     config,
+		jwksClient: jwt.NewJWKSClient(config.JWKSURL, cacheTTL),
 	}
 }
 
@@ -82,7 +82,7 @@ func (m *BearerJWKSMiddleware) Wrap(next http.HandlerFunc) http.HandlerFunc {
 		}
 
 		// Parse and validate the JWT token
-		claims, err := m.validateToken(tokenString)
+		claims, err := m.jwksClient.ValidateToken(tokenString, m.config.Issuer, m.config.Audience)
 		if err != nil {
 			if m.config.Required {
 				http.Error(w, fmt.Sprintf("Invalid token: %v", err), http.StatusUnauthorized)
@@ -107,101 +107,6 @@ func (m *BearerJWKSMiddleware) Wrap(next http.HandlerFunc) http.HandlerFunc {
 		r = SetMiddlewareParams(r, params)
 		next.ServeHTTP(w, r)
 	}
-}
-
-// validateToken parses and validates a JWT token against JWKS
-func (m *BearerJWKSMiddleware) validateToken(tokenString string) (jwt.MapClaims, error) {
-	// Parse token to get header for key ID
-	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
-		// Validate signing method
-		if _, ok := token.Method.(*jwt.SigningMethodRSA); !ok {
-			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
-		}
-
-		// Get key ID from token header
-		kid, ok := token.Header["kid"].(string)
-		if !ok {
-			return nil, fmt.Errorf("kid not found in token header")
-		}
-
-		// Get public key for this key ID
-		publicKey, err := m.getPublicKey(kid)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get public key: %w", err)
-		}
-
-		return publicKey, nil
-	})
-
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse token: %w", err)
-	}
-
-	// Check if token is valid
-	if !token.Valid {
-		return nil, fmt.Errorf("token is not valid")
-	}
-
-	// Extract claims
-	claims, ok := token.Claims.(jwt.MapClaims)
-	if !ok {
-		return nil, fmt.Errorf("failed to extract claims")
-	}
-
-	// Validate issuer if configured
-	if m.config.Issuer != "" {
-		if iss, ok := claims["iss"].(string); !ok || iss != m.config.Issuer {
-			return nil, fmt.Errorf("invalid issuer: expected %s, got %v", m.config.Issuer, claims["iss"])
-		}
-	}
-
-	// Validate audience if configured
-	if m.config.Audience != "" {
-		if aud, ok := claims["aud"].(string); !ok || aud != m.config.Audience {
-			return nil, fmt.Errorf("invalid audience: expected %s, got %v", m.config.Audience, claims["aud"])
-		}
-	}
-
-	return claims, nil
-}
-
-// getPublicKey retrieves the public key for the given key ID from JWKS
-func (m *BearerJWKSMiddleware) getPublicKey(kid string) (*rsa.PublicKey, error) {
-	// Check cache first
-	m.cacheMu.RLock()
-	if key, exists := m.keyCache[kid]; exists {
-		m.cacheMu.RUnlock()
-		return key, nil
-	}
-	m.cacheMu.RUnlock()
-
-	// Fetch JWKS using the jwx library
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	keySet, err := jwk.Fetch(ctx, m.config.JWKSURL)
-	if err != nil {
-		return nil, fmt.Errorf("failed to fetch JWKS: %w", err)
-	}
-
-	// Find the key with matching kid
-	key, found := keySet.LookupKeyID(kid)
-	if !found {
-		return nil, fmt.Errorf("key with id %s not found in JWKS", kid)
-	}
-
-	// Convert to RSA public key
-	var rsaKey rsa.PublicKey
-	if err := key.Raw(&rsaKey); err != nil {
-		return nil, fmt.Errorf("failed to convert key to RSA public key: %w", err)
-	}
-
-	// Cache the key
-	m.cacheMu.Lock()
-	m.keyCache[kid] = &rsaKey
-	m.cacheMu.Unlock()
-
-	return &rsaKey, nil
 }
 
 // Name returns the name of this middleware

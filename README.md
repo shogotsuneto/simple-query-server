@@ -152,6 +152,7 @@ middleware:
     config:
       jwks_url: "http://localhost:3000/.well-known/jwks.json"  # JWKS endpoint URL
       required: false                                          # Whether auth is mandatory
+      cache_ttl: "10m"                                         # Cache JWKS keys for 10 minutes (optional, default: 10m)
       claims_mapping:                                          # Map JWT claims to SQL parameters
         sub: "user_id"                                         # Map 'sub' claim to 'user_id' parameter
         role: "user_role"                                      # Map 'role' claim to 'user_role' parameter
