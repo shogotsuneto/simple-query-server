@@ -401,7 +401,7 @@ func testRequiredAuth(t *testing.T) {
 		"../server",
 		"--db-config", "../example/database.yaml",
 		"--queries-config", "./config/queries-with-jwt.yaml",
-		"--server-config", "./test-required-auth.yaml",
+		"--server-config", "./config/server-required-auth.yaml",
 		"--port", "8083")
 
 	if err := serverCmd.Start(); err != nil {
