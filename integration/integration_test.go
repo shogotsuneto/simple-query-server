@@ -619,7 +619,7 @@ func TestMiddlewareFunctionality(t *testing.T) {
 		}
 	})
 
-	t.Run("MultipleMiddlewareAndBodyParams", func(t *testing.T) {
+	t.Run("MixingMiddlewareAndBodyParams", func(t *testing.T) {
 		// Test mixing middleware-injected params with body params
 		client := &http.Client{}
 
