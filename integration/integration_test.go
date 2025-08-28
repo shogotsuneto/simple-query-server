@@ -68,6 +68,7 @@ func startIntegrationEnvironment() error {
 	serverCmd = exec.CommandContext(serverCtx, "../server",
 		"--db-config", "./config/database.yaml",
 		"--queries-config", "./config/queries.yaml",
+		"--server-config", "./config/server.yaml",
 		"--port", "8081")
 
 	serverCmd.Dir = "."
@@ -560,6 +561,129 @@ func TestDataConsistency(t *testing.T) {
 	if !found {
 		t.Errorf("User with ID %d not found in search results", userID)
 	}
+}
+
+// TestMiddlewareFunctionality tests that middleware properly injects parameters
+func TestMiddlewareFunctionality(t *testing.T) {
+	t.Run("HTTPHeaderMiddleware", func(t *testing.T) {
+		// Test that X-User-ID header is injected as user_id parameter
+		client := &http.Client{}
+
+		// Create request with no body parameters but with X-User-ID header
+		reqBody := map[string]interface{}{}
+		bodyBytes, _ := json.Marshal(reqBody)
+
+		req, err := http.NewRequest("POST", serverBaseURL+"/query/get_current_user", bytes.NewBuffer(bodyBytes))
+		if err != nil {
+			t.Fatalf("Failed to create request: %v", err)
+		}
+
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-User-ID", "1") // This should be injected as user_id parameter
+
+		resp, err := client.Do(req)
+		if err != nil {
+			t.Fatalf("Failed to make request: %v", err)
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			body, _ := io.ReadAll(resp.Body)
+			t.Fatalf("Expected successful query execution with middleware parameter, got status %d: %s", resp.StatusCode, string(body))
+		}
+
+		// Parse response to verify we got user data
+		var result map[string]interface{}
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			t.Fatalf("Failed to read response body: %v", err)
+		}
+
+		if err := json.Unmarshal(body, &result); err != nil {
+			t.Fatalf("Failed to unmarshal response: %v", err)
+		}
+
+		rows, ok := result["rows"].([]interface{})
+		if !ok || len(rows) == 0 {
+			t.Fatalf("Expected non-empty rows in response, got %v", result)
+		}
+
+		// Verify we got the correct user (ID 1)
+		firstRow, ok := rows[0].(map[string]interface{})
+		if !ok {
+			t.Fatalf("Expected row to be a map, got %T", rows[0])
+		}
+
+		if firstRow["id"] != float64(1) { // JSON numbers are float64
+			t.Errorf("Expected user ID 1, got %v", firstRow["id"])
+		}
+	})
+
+	t.Run("MixingMiddlewareAndBodyParams", func(t *testing.T) {
+		// Test mixing middleware-injected params with body params
+		client := &http.Client{}
+
+		// Create request with body parameter and middleware header
+		reqBody := map[string]interface{}{
+			"status": "active",
+		}
+		bodyBytes, _ := json.Marshal(reqBody)
+
+		req, err := http.NewRequest("POST", serverBaseURL+"/query/get_user_by_status", bytes.NewBuffer(bodyBytes))
+		if err != nil {
+			t.Fatalf("Failed to create request: %v", err)
+		}
+
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-User-ID", "2") // Middleware will inject this as user_id
+
+		resp, err := client.Do(req)
+		if err != nil {
+			t.Fatalf("Failed to make request: %v", err)
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			body, _ := io.ReadAll(resp.Body)
+			t.Fatalf("Expected successful query execution with mixed parameters, got status %d: %s", resp.StatusCode, string(body))
+		}
+
+		// Parse response to verify we got correct user data
+		var result map[string]interface{}
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			t.Fatalf("Failed to read response body: %v", err)
+		}
+
+		if err := json.Unmarshal(body, &result); err != nil {
+			t.Fatalf("Failed to unmarshal response: %v", err)
+		}
+
+		rows, ok := result["rows"].([]interface{})
+		if !ok {
+			t.Fatalf("Expected rows in response, got %v", result)
+		}
+
+		// Should get results if user 2 has active status, or empty if not
+		// The important thing is that the query executed without parameter errors
+		t.Logf("Mixed parameter query executed successfully, got %d rows", len(rows))
+	})
+
+	t.Run("OptionalMiddlewareParameter", func(t *testing.T) {
+		// Test that missing optional middleware parameter doesn't cause errors
+		reqBody := map[string]interface{}{
+			"id": 1,
+		}
+
+		resp, _, err := makeRequest("POST", serverBaseURL+"/query/get_user_by_id", reqBody)
+		if err != nil {
+			t.Fatalf("Failed to make request: %v", err)
+		}
+
+		if resp.StatusCode != http.StatusOK {
+			t.Errorf("Expected successful execution without middleware headers, got status %d", resp.StatusCode)
+		}
+	})
 }
 
 // TestDatabaseReconnection tests that the server handles database disconnections gracefully

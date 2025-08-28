@@ -325,11 +325,14 @@ simple-query-server/
    - Missing required parameters
    - Invalid JSON in request body
 
-4. **Before committing:**
+4. **Before committing (REQUIRED):**
    ```bash
+   make fmt  # Format all code - ALWAYS run this before committing
    make clean-deps && make fmt
-   # OR: go mod tidy && gofmt -w .
+   # OR: gofmt -w . && go mod tidy
    ```
+   
+   **CRITICAL**: Always format code before pushing commits. Use `make fmt-check` to verify formatting or `make fmt` to fix formatting issues.
 
 ## Common Issues
 
