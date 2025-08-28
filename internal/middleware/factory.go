@@ -13,7 +13,7 @@ func CreateMiddleware(middlewareConfig config.MiddlewareConfig) (Middleware, err
 	case "http-header":
 		return createHTTPHeaderMiddleware(middlewareConfig.Config)
 	case "bearer-jwks":
-		return createJWKSVerificationMiddleware(middlewareConfig.Config)
+		return createBearerJWKSMiddleware(middlewareConfig.Config)
 	default:
 		return nil, fmt.Errorf("unknown middleware type: %s", middlewareConfig.Type)
 	}
@@ -43,15 +43,15 @@ func createHTTPHeaderMiddleware(configMap map[string]interface{}) (Middleware, e
 	return NewHTTPHeaderMiddleware(httpHeaderConfig), nil
 }
 
-// createJWKSVerificationMiddleware creates a JWKS verification middleware from config
-func createJWKSVerificationMiddleware(configMap map[string]interface{}) (Middleware, error) {
+// createBearerJWKSMiddleware creates a bearer JWKS middleware from config
+func createBearerJWKSMiddleware(configMap map[string]interface{}) (Middleware, error) {
 	// Convert the config map to YAML and back to get proper type conversion
 	yamlData, err := yaml.Marshal(configMap)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal bearer-jwks config: %w", err)
 	}
 
-	var jwksConfig JWKSVerificationConfig
+	var jwksConfig BearerJWKSConfig
 	if err := yaml.Unmarshal(yamlData, &jwksConfig); err != nil {
 		return nil, fmt.Errorf("failed to parse bearer-jwks config: %w", err)
 	}
@@ -64,7 +64,7 @@ func createJWKSVerificationMiddleware(configMap map[string]interface{}) (Middlew
 		return nil, fmt.Errorf("bearer-jwks middleware requires 'claims_mapping' field")
 	}
 
-	return NewJWKSVerificationMiddleware(jwksConfig), nil
+	return NewBearerJWKSMiddleware(jwksConfig), nil
 }
 
 // CreateMiddlewareChain creates a middleware chain from server configuration

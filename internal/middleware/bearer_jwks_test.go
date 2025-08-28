@@ -6,14 +6,14 @@ import (
 	"testing"
 )
 
-func TestJWKSVerificationMiddleware_RequiredFalse(t *testing.T) {
+func TestBearerJWKSMiddleware_RequiredFalse(t *testing.T) {
 	// Test when required is false and no Authorization header is provided
-	config := JWKSVerificationConfig{
+	config := BearerJWKSConfig{
 		JWKSURL:       "http://localhost:3000/.well-known/jwks.json",
 		Required:      false,
 		ClaimsMapping: map[string]string{"sub": "user_id"},
 	}
-	middleware := NewJWKSVerificationMiddleware(config)
+	middleware := NewBearerJWKSMiddleware(config)
 
 	var capturedParams map[string]interface{}
 	testHandler := func(w http.ResponseWriter, r *http.Request) {
@@ -40,14 +40,14 @@ func TestJWKSVerificationMiddleware_RequiredFalse(t *testing.T) {
 	}
 }
 
-func TestJWKSVerificationMiddleware_RequiredTrue(t *testing.T) {
+func TestBearerJWKSMiddleware_RequiredTrue(t *testing.T) {
 	// Test when required is true and no Authorization header is provided
-	config := JWKSVerificationConfig{
+	config := BearerJWKSConfig{
 		JWKSURL:       "http://localhost:3000/.well-known/jwks.json",
 		Required:      true,
 		ClaimsMapping: map[string]string{"sub": "user_id"},
 	}
-	middleware := NewJWKSVerificationMiddleware(config)
+	middleware := NewBearerJWKSMiddleware(config)
 
 	testHandler := func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -67,14 +67,14 @@ func TestJWKSVerificationMiddleware_RequiredTrue(t *testing.T) {
 	}
 }
 
-func TestJWKSVerificationMiddleware_InvalidBearerFormat(t *testing.T) {
+func TestBearerJWKSMiddleware_InvalidBearerFormat(t *testing.T) {
 	// Test with invalid Bearer token format
-	config := JWKSVerificationConfig{
+	config := BearerJWKSConfig{
 		JWKSURL:       "http://localhost:3000/.well-known/jwks.json",
 		Required:      true,
 		ClaimsMapping: map[string]string{"sub": "user_id"},
 	}
-	middleware := NewJWKSVerificationMiddleware(config)
+	middleware := NewBearerJWKSMiddleware(config)
 
 	testHandler := func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -95,14 +95,14 @@ func TestJWKSVerificationMiddleware_InvalidBearerFormat(t *testing.T) {
 	}
 }
 
-func TestJWKSVerificationMiddleware_EmptyBearerToken(t *testing.T) {
+func TestBearerJWKSMiddleware_EmptyBearerToken(t *testing.T) {
 	// Test with empty Bearer token
-	config := JWKSVerificationConfig{
+	config := BearerJWKSConfig{
 		JWKSURL:       "http://localhost:3000/.well-known/jwks.json",
 		Required:      true,
 		ClaimsMapping: map[string]string{"sub": "user_id"},
 	}
-	middleware := NewJWKSVerificationMiddleware(config)
+	middleware := NewBearerJWKSMiddleware(config)
 
 	testHandler := func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -123,13 +123,13 @@ func TestJWKSVerificationMiddleware_EmptyBearerToken(t *testing.T) {
 	}
 }
 
-func TestJWKSVerificationMiddleware_Name(t *testing.T) {
-	config := JWKSVerificationConfig{
+func TestBearerJWKSMiddleware_Name(t *testing.T) {
+	config := BearerJWKSConfig{
 		JWKSURL:       "http://localhost:3000/.well-known/jwks.json",
 		Required:      false,
 		ClaimsMapping: map[string]string{"sub": "user_id"},
 	}
-	middleware := NewJWKSVerificationMiddleware(config)
+	middleware := NewBearerJWKSMiddleware(config)
 
 	expectedName := "bearer-jwks(http://localhost:3000/.well-known/jwks.json)"
 	if middleware.Name() != expectedName {
@@ -137,7 +137,7 @@ func TestJWKSVerificationMiddleware_Name(t *testing.T) {
 	}
 }
 
-func TestCreateJWKSVerificationMiddleware(t *testing.T) {
+func TestCreateBearerJWKSMiddleware(t *testing.T) {
 	// Test factory function
 	configMap := map[string]interface{}{
 		"jwks_url": "http://localhost:3000/.well-known/jwks.json",
@@ -150,7 +150,7 @@ func TestCreateJWKSVerificationMiddleware(t *testing.T) {
 		"audience": "dev-api",
 	}
 
-	middleware, err := createJWKSVerificationMiddleware(configMap)
+	middleware, err := createBearerJWKSMiddleware(configMap)
 	if err != nil {
 		t.Fatalf("Failed to create middleware: %v", err)
 	}
@@ -160,19 +160,19 @@ func TestCreateJWKSVerificationMiddleware(t *testing.T) {
 	}
 
 	// Check that it implements the Middleware interface
-	if _, ok := middleware.(*JWKSVerificationMiddleware); !ok {
-		t.Error("Middleware does not implement JWKSVerificationMiddleware type")
+	if _, ok := middleware.(*BearerJWKSMiddleware); !ok {
+		t.Error("Middleware does not implement BearerJWKSMiddleware type")
 	}
 }
 
-func TestCreateJWKSVerificationMiddleware_MissingFields(t *testing.T) {
+func TestCreateBearerJWKSMiddleware_MissingFields(t *testing.T) {
 	// Test factory function with missing required fields
 	testCases := []struct {
 		name      string
 		configMap map[string]interface{}
 	}{
 		{
-			name:      "missing jwks_url",
+			name: "missing jwks_url",
 			configMap: map[string]interface{}{
 				"required": true,
 				"claims_mapping": map[string]interface{}{
@@ -199,7 +199,7 @@ func TestCreateJWKSVerificationMiddleware_MissingFields(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := createJWKSVerificationMiddleware(tc.configMap)
+			_, err := createBearerJWKSMiddleware(tc.configMap)
 			if err == nil {
 				t.Error("Expected error for missing required field, but got none")
 			}
@@ -207,14 +207,14 @@ func TestCreateJWKSVerificationMiddleware_MissingFields(t *testing.T) {
 	}
 }
 
-func TestJWKSVerificationMiddleware_OptionalNotRequiredWithInvalidToken(t *testing.T) {
+func TestBearerJWKSMiddleware_OptionalNotRequiredWithInvalidToken(t *testing.T) {
 	// Test when required is false and an invalid token is provided
-	config := JWKSVerificationConfig{
+	config := BearerJWKSConfig{
 		JWKSURL:       "http://localhost:3000/.well-known/jwks.json",
 		Required:      false,
 		ClaimsMapping: map[string]string{"sub": "user_id"},
 	}
-	middleware := NewJWKSVerificationMiddleware(config)
+	middleware := NewBearerJWKSMiddleware(config)
 
 	var capturedParams map[string]interface{}
 	testHandler := func(w http.ResponseWriter, r *http.Request) {

@@ -353,16 +353,16 @@ func testClaimsMapping(t *testing.T) {
 
 	if len(rows) > 0 {
 		row := rows[0].(map[string]interface{})
-		
+
 		// Check that JWT claims were properly mapped
 		if row["provided_role"] != "admin" {
 			t.Errorf("Expected provided_role 'admin' from JWT role claim, got %v", row["provided_role"])
 		}
-		
+
 		if row["provided_email"] != "admin@test.com" {
 			t.Errorf("Expected provided_email 'admin@test.com' from JWT email claim, got %v", row["provided_email"])
 		}
-		
+
 		if row["id"] != float64(3) {
 			t.Errorf("Expected user ID 3 from JWT sub claim, got %v", row["id"])
 		}

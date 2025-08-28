@@ -13,8 +13,8 @@ import (
 	"github.com/lestrrat-go/jwx/v2/jwk"
 )
 
-// JWKSVerificationConfig represents the configuration for JWKS verification middleware
-type JWKSVerificationConfig struct {
+// BearerJWKSConfig represents the configuration for bearer JWKS middleware
+type BearerJWKSConfig struct {
 	JWKSURL       string            `yaml:"jwks_url"`       // URL to fetch JWKS from
 	Required      bool              `yaml:"required"`       // Whether authentication is mandatory
 	ClaimsMapping map[string]string `yaml:"claims_mapping"` // Map JWT claims to SQL parameters
@@ -22,17 +22,17 @@ type JWKSVerificationConfig struct {
 	Audience      string            `yaml:"audience"`       // Expected audience for validation (optional)
 }
 
-// JWKSVerificationMiddleware verifies JWT tokens using JWKS and injects claims as SQL parameters
-type JWKSVerificationMiddleware struct {
-	config   JWKSVerificationConfig
+// BearerJWKSMiddleware verifies JWT tokens using JWKS and injects claims as SQL parameters
+type BearerJWKSMiddleware struct {
+	config   BearerJWKSConfig
 	keyCache map[string]*rsa.PublicKey
 	cacheMu  sync.RWMutex
 	client   *http.Client
 }
 
-// NewJWKSVerificationMiddleware creates a new JWKS verification middleware
-func NewJWKSVerificationMiddleware(config JWKSVerificationConfig) *JWKSVerificationMiddleware {
-	return &JWKSVerificationMiddleware{
+// NewBearerJWKSMiddleware creates a new bearer JWKS middleware
+func NewBearerJWKSMiddleware(config BearerJWKSConfig) *BearerJWKSMiddleware {
+	return &BearerJWKSMiddleware{
 		config:   config,
 		keyCache: make(map[string]*rsa.PublicKey),
 		client: &http.Client{
@@ -42,11 +42,11 @@ func NewJWKSVerificationMiddleware(config JWKSVerificationConfig) *JWKSVerificat
 }
 
 // Wrap wraps an http.HandlerFunc with this middleware
-func (m *JWKSVerificationMiddleware) Wrap(next http.HandlerFunc) http.HandlerFunc {
+func (m *BearerJWKSMiddleware) Wrap(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// Extract Authorization header
 		authHeader := r.Header.Get("Authorization")
-		
+
 		if authHeader == "" {
 			if m.config.Required {
 				http.Error(w, "Authorization header is required", http.StatusUnauthorized)
@@ -110,7 +110,7 @@ func (m *JWKSVerificationMiddleware) Wrap(next http.HandlerFunc) http.HandlerFun
 }
 
 // validateToken parses and validates a JWT token against JWKS
-func (m *JWKSVerificationMiddleware) validateToken(tokenString string) (jwt.MapClaims, error) {
+func (m *BearerJWKSMiddleware) validateToken(tokenString string) (jwt.MapClaims, error) {
 	// Parse token to get header for key ID
 	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
 		// Validate signing method
@@ -166,7 +166,7 @@ func (m *JWKSVerificationMiddleware) validateToken(tokenString string) (jwt.MapC
 }
 
 // getPublicKey retrieves the public key for the given key ID from JWKS
-func (m *JWKSVerificationMiddleware) getPublicKey(kid string) (*rsa.PublicKey, error) {
+func (m *BearerJWKSMiddleware) getPublicKey(kid string) (*rsa.PublicKey, error) {
 	// Check cache first
 	m.cacheMu.RLock()
 	if key, exists := m.keyCache[kid]; exists {
@@ -205,6 +205,6 @@ func (m *JWKSVerificationMiddleware) getPublicKey(kid string) (*rsa.PublicKey, e
 }
 
 // Name returns the name of this middleware
-func (m *JWKSVerificationMiddleware) Name() string {
+func (m *BearerJWKSMiddleware) Name() string {
 	return fmt.Sprintf("bearer-jwks(%s)", m.config.JWKSURL)
 }
