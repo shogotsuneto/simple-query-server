@@ -1,11 +1,13 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/shogotsuneto/simple-query-server/internal/config"
 	"github.com/shogotsuneto/simple-query-server/internal/middleware"
@@ -18,6 +20,8 @@ type Server struct {
 	queriesConfig   *config.QueriesConfig
 	middlewareChain middleware.Chain
 	executor        query.QueryExecutor
+	httpServer      *http.Server
+	done            chan struct{}
 }
 
 // Response represents the JSON response structure
@@ -44,27 +48,65 @@ func New(dbConfig *config.DatabaseConfig, queriesConfig *config.QueriesConfig, s
 		queriesConfig:   queriesConfig,
 		middlewareChain: middlewareChain,
 		executor:        executor,
+		done:            make(chan struct{}),
 	}, nil
 }
 
-// Start starts the HTTP server on the specified port
-func (s *Server) Start(port string) error {
-	http.HandleFunc("/", s.handleRoot)
-	http.HandleFunc("/health", s.handleHealth)
-	http.HandleFunc("/queries", s.handleListQueries)
+// Start starts the HTTP server on the specified port with graceful shutdown support
+func (s *Server) Start(ctx context.Context, port string) error {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", s.handleRoot)
+	mux.HandleFunc("/health", s.handleHealth)
+	mux.HandleFunc("/queries", s.handleListQueries)
 
 	// Wrap the query handler with middleware chain
 	queryHandler := s.middlewareChain.Wrap(s.handleQuery)
-	http.HandleFunc("/query/", queryHandler)
+	mux.HandleFunc("/query/", queryHandler)
 
 	addr := ":" + port
+	s.httpServer = &http.Server{
+		Addr:    addr,
+		Handler: mux,
+	}
+
 	log.Printf("Server starting on %s", addr)
 	log.Printf("Available endpoints:")
 	log.Printf("  GET  /health       - Health check")
 	log.Printf("  GET  /queries      - List available queries")
 	log.Printf("  POST /query/{name} - Execute a query")
 
-	return http.ListenAndServe(addr, nil)
+	// Start server in a goroutine so we can handle shutdown
+	go func() {
+		defer close(s.done)
+		if err := s.httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Printf("Server error: %v", err)
+		}
+	}()
+
+	// Wait for context cancellation (shutdown signal)
+	<-ctx.Done()
+	log.Printf("Shutting down server...")
+
+	// Create shutdown context with timeout
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// Shutdown HTTP server
+	if err := s.httpServer.Shutdown(shutdownCtx); err != nil {
+		log.Printf("Server shutdown error: %v", err)
+	}
+
+	// Close database executor
+	if err := s.executor.Close(); err != nil {
+		log.Printf("Database executor close error: %v", err)
+	}
+
+	return nil
+}
+
+// Done returns a channel that is closed when the server has fully shut down
+func (s *Server) Done() <-chan struct{} {
+	return s.done
 }
 
 // handleRoot handles requests to the root path
