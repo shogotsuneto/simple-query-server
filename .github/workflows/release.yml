@@ -109,9 +109,29 @@ jobs:
         # Extract unreleased section from CHANGELOG.md
         sed -n '/## \[Unreleased\]/,/## \[/p' CHANGELOG.md | sed '$d' | tail -n +2 > unreleased_changes.txt
         
-        # Create release notes with the unreleased changes
+        # Create release notes with the unreleased changes and Docker usage instructions
         echo "RELEASE_NOTES<<EOF" >> $GITHUB_OUTPUT
         cat unreleased_changes.txt >> $GITHUB_OUTPUT
+        echo "" >> $GITHUB_OUTPUT
+        echo "## Docker Usage" >> $GITHUB_OUTPUT
+        echo "" >> $GITHUB_OUTPUT
+        echo "Docker images are available for both \`linux/amd64\` and \`linux/arm64\` architectures:" >> $GITHUB_OUTPUT
+        echo "" >> $GITHUB_OUTPUT
+        echo "\`\`\`bash" >> $GITHUB_OUTPUT
+        echo "# Pull the latest image" >> $GITHUB_OUTPUT
+        echo "docker pull ghcr.io/${{ github.repository }}:latest" >> $GITHUB_OUTPUT
+        echo "" >> $GITHUB_OUTPUT
+        echo "# Run with configuration files (mount your config directory)" >> $GITHUB_OUTPUT
+        echo "docker run -d \\" >> $GITHUB_OUTPUT
+        echo "  -p 8080:8080 \\" >> $GITHUB_OUTPUT
+        echo "  -v /path/to/your/configs:/configs \\" >> $GITHUB_OUTPUT
+        echo "  ghcr.io/${{ github.repository }}:latest \\" >> $GITHUB_OUTPUT
+        echo "  --db-config /configs/database.yaml \\" >> $GITHUB_OUTPUT
+        echo "  --queries-config /configs/queries.yaml" >> $GITHUB_OUTPUT
+        echo "" >> $GITHUB_OUTPUT
+        echo "# Or use a specific version" >> $GITHUB_OUTPUT
+        echo "docker pull ghcr.io/${{ github.repository }}:${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+        echo "\`\`\`" >> $GITHUB_OUTPUT
         echo "EOF" >> $GITHUB_OUTPUT
     
     - name: Create Draft Release
