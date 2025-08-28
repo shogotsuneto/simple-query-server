@@ -60,3 +60,21 @@ queries:
         type: int
       - name: status
         type: string
+
+  # Test query that can use middleware-injected user_id parameter
+  get_current_user:
+    sql: "SELECT id, name, email FROM users WHERE id = CAST(:user_id AS INTEGER)"
+    params: []
+    middleware_params:
+      - name: user_id
+        type: string
+
+  # Test query that can use both middleware and request body parameters
+  get_user_with_tenant:
+    sql: "SELECT id, name, email FROM users WHERE id = CAST(:user_id AS INTEGER) AND status = :status"
+    params:
+      - name: status
+        type: string
+    middleware_params:
+      - name: user_id
+        type: string
