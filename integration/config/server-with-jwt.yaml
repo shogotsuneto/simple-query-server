@@ -1,0 +1,22 @@
+# Integration test server configuration with JWKS verification
+# Configures JWT authentication for integration testing with JWKS mock API
+
+middleware:
+  # JWKS verification middleware for testing
+  - type: "jwks-verification"
+    config:
+      jwks_url: "http://localhost:3000/.well-known/jwks.json"  # JWKS mock API endpoint
+      required: false                                          # Start with optional for easier testing
+      claims_mapping:                                          # Map JWT claims to SQL parameters
+        sub: "user_id"                                         # Map 'sub' claim to 'user_id' parameter
+        role: "role"                                           # Map 'role' claim to 'role' parameter
+        email: "email"                                         # Map 'email' claim to 'email' parameter
+      issuer: "http://localhost:3000"                         # Expected issuer
+      audience: "dev-api"                                      # Expected audience
+  
+  # Keep existing HTTP header middleware for backward compatibility
+  - type: "http-header"
+    config:
+      header: "X-User-ID"
+      parameter: "user_id"
+      required: false
