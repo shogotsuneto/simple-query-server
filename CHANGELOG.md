@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.0.1] - 2025-08-28
+
 ### Added
 - Project initiated with core functionality
 - YAML configuration loading and validation
