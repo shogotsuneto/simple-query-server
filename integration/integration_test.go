@@ -68,7 +68,6 @@ func startIntegrationEnvironment() error {
 	serverCmd = exec.CommandContext(serverCtx, "../server",
 		"--db-config", "./config/database.yaml",
 		"--queries-config", "./config/queries.yaml",
-		"--server-config", "./config/server.yaml",
 		"--port", "8081")
 
 	serverCmd.Dir = "."
@@ -131,11 +130,6 @@ func waitForServices() error {
 
 // makeRequest makes an HTTP request and returns the response
 func makeRequest(method, url string, body interface{}) (*http.Response, []byte, error) {
-	return makeRequestWithHeaders(method, url, body, nil)
-}
-
-// makeRequestWithHeaders makes an HTTP request with custom headers and returns the response
-func makeRequestWithHeaders(method, url string, body interface{}, headers map[string]string) (*http.Response, []byte, error) {
 	var requestBody io.Reader
 	if body != nil {
 		jsonBody, err := json.Marshal(body)
@@ -153,11 +147,6 @@ func makeRequestWithHeaders(method, url string, body interface{}, headers map[st
 
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
-	}
-
-	// Add custom headers
-	for key, value := range headers {
-		req.Header.Set(key, value)
 	}
 
 	resp, err := client.Do(req)
@@ -253,10 +242,6 @@ func TestListQueriesEndpoint(t *testing.T) {
 		"get_all_active_users",
 		"test_invalid_sql",
 		"test_multiple_params",
-		"get_current_user",
-		"get_user_by_tenant",
-		"secure_user_data",
-		"tenant_user_query",
 	}
 
 	for _, expectedQuery := range expectedQueries {
@@ -610,257 +595,4 @@ func TestDatabaseReconnection(t *testing.T) {
 
 	// Note: We don't test actual disconnection in integration tests to avoid disrupting other tests
 	// The database connection retry logic is tested by starting the server without database first
-}
-
-// TestMiddlewareIntegration tests the middleware functionality
-func TestMiddlewareIntegration(t *testing.T) {
-	t.Run("HeaderMiddlewareBasic", func(t *testing.T) {
-		// Test basic header middleware functionality
-		headers := map[string]string{
-			"X-User-ID": "1",
-		}
-
-		resp, body, err := makeRequestWithHeaders("POST",
-			serverBaseURL+"/query/get_current_user",
-			map[string]interface{}{},
-			headers)
-
-		if err != nil {
-			t.Fatalf("Failed to make query request with headers: %v", err)
-		}
-
-		if resp.StatusCode != http.StatusOK {
-			t.Errorf("Expected status 200, got %d. Response: %s", resp.StatusCode, string(body))
-			return
-		}
-
-		var queryResponse map[string]interface{}
-		if err := json.Unmarshal(body, &queryResponse); err != nil {
-			t.Fatalf("Failed to unmarshal query response: %v", err)
-		}
-
-		rows, ok := queryResponse["rows"]
-		if !ok {
-			t.Errorf("Expected 'rows' field in response")
-			return
-		}
-
-		rowsSlice := rows.([]interface{})
-		if len(rowsSlice) == 0 {
-			t.Errorf("Expected at least one row in response")
-			return
-		}
-
-		// Should return user with ID 1
-		firstRow := rowsSlice[0].(map[string]interface{})
-		if int(firstRow["id"].(float64)) != 1 {
-			t.Errorf("Expected user ID 1, got %v", firstRow["id"])
-		}
-	})
-
-	t.Run("MultipleHeaderParameters", func(t *testing.T) {
-		// Test multiple header middleware parameters
-		headers := map[string]string{
-			"X-User-ID":   "123",
-			"X-Tenant-ID": "tenant456",
-		}
-
-		resp, body, err := makeRequestWithHeaders("POST",
-			serverBaseURL+"/query/tenant_user_query",
-			map[string]interface{}{},
-			headers)
-
-		if err != nil {
-			t.Fatalf("Failed to make query request with multiple headers: %v", err)
-		}
-
-		if resp.StatusCode != http.StatusOK {
-			t.Errorf("Expected status 200, got %d. Response: %s", resp.StatusCode, string(body))
-			return
-		}
-
-		var queryResponse map[string]interface{}
-		if err := json.Unmarshal(body, &queryResponse); err != nil {
-			t.Fatalf("Failed to unmarshal query response: %v", err)
-		}
-
-		rows := queryResponse["rows"].([]interface{})
-		firstRow := rows[0].(map[string]interface{})
-
-		if firstRow["user_id"] != "123" {
-			t.Errorf("Expected user_id=123, got %v", firstRow["user_id"])
-		}
-
-		if firstRow["tenant_id"] != "tenant456" {
-			t.Errorf("Expected tenant_id=tenant456, got %v", firstRow["tenant_id"])
-		}
-	})
-
-	t.Run("MixedBodyAndMiddlewareParameters", func(t *testing.T) {
-		// Test mixing body and middleware parameters
-		headers := map[string]string{
-			"X-Tenant-ID": "tenant789",
-		}
-
-		bodyParams := map[string]interface{}{
-			"id": 2,
-		}
-
-		resp, body, err := makeRequestWithHeaders("POST",
-			serverBaseURL+"/query/get_user_by_tenant",
-			bodyParams,
-			headers)
-
-		if err != nil {
-			t.Fatalf("Failed to make query request with mixed parameters: %v", err)
-		}
-
-		if resp.StatusCode != http.StatusOK {
-			t.Errorf("Expected status 200, got %d. Response: %s", resp.StatusCode, string(body))
-			return
-		}
-
-		var queryResponse map[string]interface{}
-		if err := json.Unmarshal(body, &queryResponse); err != nil {
-			t.Fatalf("Failed to unmarshal query response: %v", err)
-		}
-
-		rows := queryResponse["rows"].([]interface{})
-		if len(rows) > 0 {
-			// If we get results, verify the user ID matches our body parameter
-			firstRow := rows[0].(map[string]interface{})
-			if int(firstRow["id"].(float64)) != 2 {
-				t.Errorf("Expected user ID 2, got %v", firstRow["id"])
-			}
-		}
-	})
-
-	t.Run("OptionalHeaderMissing", func(t *testing.T) {
-		// Test that optional headers work when missing
-		resp, body, err := makeRequest("POST",
-			serverBaseURL+"/query/get_current_user",
-			map[string]interface{}{})
-
-		if err != nil {
-			t.Fatalf("Failed to make query request without headers: %v", err)
-		}
-
-		// This should still work but the SQL query will have NULL for the missing parameter
-		// Depending on the query, this might return no results or cause an error
-		// For our test query, it will likely cause a DB error due to WHERE id = NULL
-		if resp.StatusCode != http.StatusInternalServerError {
-			t.Errorf("Expected status 500 (internal server error) for missing user_id, got %d. Response: %s", resp.StatusCode, string(body))
-		}
-	})
-
-	t.Run("ParameterFiltering", func(t *testing.T) {
-		// Test that body parameters are filtered according to YAML config
-		headers := map[string]string{
-			"X-User-ID": "1",
-		}
-
-		// Try to provide user_id in body (should be filtered out)
-		bodyParams := map[string]interface{}{
-			"user_id": "999",     // This should be ignored since user_id is a middleware param
-			"extra":   "ignored", // This should also be filtered out
-		}
-
-		resp, body, err := makeRequestWithHeaders("POST",
-			serverBaseURL+"/query/get_current_user",
-			bodyParams,
-			headers)
-
-		if err != nil {
-			t.Fatalf("Failed to make query request for parameter filtering test: %v", err)
-		}
-
-		if resp.StatusCode != http.StatusOK {
-			t.Errorf("Expected status 200, got %d. Response: %s", resp.StatusCode, string(body))
-			return
-		}
-
-		var queryResponse map[string]interface{}
-		if err := json.Unmarshal(body, &queryResponse); err != nil {
-			t.Fatalf("Failed to unmarshal query response: %v", err)
-		}
-
-		rows := queryResponse["rows"].([]interface{})
-		if len(rows) > 0 {
-			// Should return user with ID 1 (from header), not 999 (from filtered body)
-			firstRow := rows[0].(map[string]interface{})
-			if int(firstRow["id"].(float64)) != 1 {
-				t.Errorf("Expected user ID 1 (from header), got %v. Parameter filtering may not be working.", firstRow["id"])
-			}
-		}
-	})
-
-	t.Run("QueriesEndpointShowsMiddlewareParams", func(t *testing.T) {
-		// Test that /queries endpoint properly shows middleware_params separately
-		resp, body, err := makeRequest("GET", serverBaseURL+"/queries", nil)
-		if err != nil {
-			t.Fatalf("Failed to make queries request: %v", err)
-		}
-
-		if resp.StatusCode != http.StatusOK {
-			t.Errorf("Expected status 200, got %d", resp.StatusCode)
-		}
-
-		var queriesResponse map[string]interface{}
-		if err := json.Unmarshal(body, &queriesResponse); err != nil {
-			t.Fatalf("Failed to unmarshal queries response: %v", err)
-		}
-
-		queries := queriesResponse["queries"].(map[string]interface{})
-
-		// Check that middleware-using queries show the middleware_params
-		getCurrentUser := queries["get_current_user"].(map[string]interface{})
-
-		middlewareParams, hasMiddlewareParams := getCurrentUser["middleware_params"]
-		if !hasMiddlewareParams {
-			t.Errorf("Expected 'middleware_params' field for get_current_user query")
-			return
-		}
-
-		middlewareParamsSlice := middlewareParams.([]interface{})
-		if len(middlewareParamsSlice) == 0 {
-			t.Errorf("Expected at least one middleware parameter for get_current_user query")
-			return
-		}
-
-		// Check that the parameter has the expected structure
-		firstParam := middlewareParamsSlice[0].(map[string]interface{})
-		if firstParam["name"] != "user_id" {
-			t.Errorf("Expected first middleware parameter to be 'user_id', got %v", firstParam["name"])
-		}
-
-		if firstParam["type"] != "string" {
-			t.Errorf("Expected middleware parameter type to be 'string', got %v", firstParam["type"])
-		}
-
-		// Also verify regular params are still there for mixed queries
-		getUserByTenant := queries["get_user_by_tenant"].(map[string]interface{})
-
-		params, hasParams := getUserByTenant["params"]
-		if !hasParams {
-			t.Errorf("Expected 'params' field for get_user_by_tenant query")
-			return
-		}
-
-		middlewareParams, hasMiddlewareParams = getUserByTenant["middleware_params"]
-		if !hasMiddlewareParams {
-			t.Errorf("Expected 'middleware_params' field for get_user_by_tenant query")
-			return
-		}
-
-		paramsSlice := params.([]interface{})
-		middlewareParamsSlice = middlewareParams.([]interface{})
-
-		if len(paramsSlice) == 0 {
-			t.Errorf("Expected at least one regular parameter for get_user_by_tenant query")
-		}
-
-		if len(middlewareParamsSlice) == 0 {
-			t.Errorf("Expected at least one middleware parameter for get_user_by_tenant query")
-		}
-	})
 }
