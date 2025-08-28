@@ -1,10 +1,14 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"log"
 	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
 	"github.com/shogotsuneto/simple-query-server/internal/config"
 	"github.com/shogotsuneto/simple-query-server/internal/server"
@@ -64,12 +68,45 @@ func main() {
 		log.Printf("Loaded %d middleware configurations", len(serverConfig.Middleware))
 	}
 
+	// Create context for graceful shutdown
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Set up signal handling for graceful shutdown
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+
 	// Start HTTP server
 	srv, err := server.New(dbConfig, queriesConfig, serverConfig)
 	if err != nil {
 		log.Fatalf("Failed to create server: %v", err)
 	}
-	if err := srv.Start(*port); err != nil {
+
+	// Start server in a goroutine
+	serverErrors := make(chan error, 1)
+	go func() {
+		if err := srv.Start(ctx, *port); err != nil {
+			serverErrors <- err
+		}
+	}()
+
+	// Wait for either a signal or server error
+	select {
+	case err := <-serverErrors:
 		log.Fatalf("Server failed to start: %v", err)
+	case sig := <-sigCh:
+		log.Printf("Received signal %s, initiating graceful shutdown...", sig)
+		cancel()
+
+		// Give the server a moment to shut down gracefully
+		shutdownTimeout := time.NewTimer(10 * time.Second)
+		defer shutdownTimeout.Stop()
+
+		select {
+		case <-srv.Done():
+			log.Printf("Server shutdown completed")
+		case <-shutdownTimeout.C:
+			log.Printf("Server shutdown timeout, forcing exit")
+		}
 	}
 }
