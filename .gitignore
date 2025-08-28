@@ -40,3 +40,6 @@ Thumbs.db
 # Temporary files
 tmp/
 temp/
+
+# Test tools and binaries
+test-tools/

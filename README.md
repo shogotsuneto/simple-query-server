@@ -16,6 +16,7 @@ The `simple-query-server` allows you to define database queries in YAML configur
 - **Automatic Reconnection**: Exponential backoff retry mechanism with health monitoring
 - **Middleware System**: Configurable middleware for request processing and parameter injection
 - **HTTP Header Middleware**: Extract HTTP header values and inject as SQL parameters
+- **JWT/JWKS Authentication**: Verify JWT tokens using JWKS endpoints with configurable claims mapping
 - **Docker Integration**: Complete PostgreSQL setup with docker-compose
 - **Command Line Interface**: Flexible configuration via CLI flags
 
@@ -146,6 +147,18 @@ middleware:
       parameter: "user_id"     # SQL parameter name to inject
       required: false          # Whether the header is required (default: false)
   
+  # JWT/JWKS verification middleware - verifies JWT tokens and extracts claims
+  - type: "jwks-verification"
+    config:
+      jwks_url: "http://localhost:3000/.well-known/jwks.json"  # JWKS endpoint URL
+      required: false                                          # Whether auth is mandatory
+      claims_mapping:                                          # Map JWT claims to SQL parameters
+        sub: "user_id"                                         # Map 'sub' claim to 'user_id' parameter
+        role: "user_role"                                      # Map 'role' claim to 'user_role' parameter
+        email: "user_email"                                    # Map 'email' claim to 'user_email' parameter
+      issuer: "http://localhost:3000"                         # Expected issuer (optional)
+      audience: "dev-api"                                      # Expected audience (optional)
+  
   # Multiple middleware can be chained
   - type: "http-header"
     config:
@@ -160,6 +173,13 @@ middleware:
   - `parameter`: Name of the SQL parameter to inject the header value into
   - `required`: Whether the header is required (if true, returns 400 Bad Request when missing)
 
+- **`jwks-verification`**: Verifies JWT tokens using JWKS endpoints and extracts claims as SQL parameters
+  - `jwks_url`: URL to fetch JWKS from (e.g., `http://localhost:3000/.well-known/jwks.json`)
+  - `required`: Whether authentication is mandatory (if true, returns 401 Unauthorized when missing/invalid)
+  - `claims_mapping`: Map JWT claims to SQL parameter names (e.g., `{"sub": "user_id", "role": "user_role"}`)
+  - `issuer`: Expected JWT issuer for validation (optional)
+  - `audience`: Expected JWT audience for validation (optional)
+
 **How it works:**
 1. Middleware processes requests in the order configured
 2. Each middleware can inject additional parameters into the request
@@ -169,14 +189,57 @@ middleware:
 
 **Example Usage:**
 ```bash
-# Request with middleware-injected parameter
+# Request with HTTP header middleware parameter
 curl -X POST -H "X-User-ID: 123" -H "Content-Type: application/json" \
      -d '{}' http://localhost:8080/query/get_current_user
 
-# Request mixing JSON body params with middleware params  
-curl -X POST -H "X-User-ID: 123" -H "Content-Type: application/json" \
-     -d '{"status": "active"}' http://localhost:8080/query/get_user_data
+# Request with JWT authentication (optional)
+curl -X POST -H "Authorization: Bearer <jwt_token>" -H "Content-Type: application/json" \
+     -d '{}' http://localhost:8080/query/get_user_profile
+
+# Request mixing JWT claims with body parameters  
+curl -X POST -H "Authorization: Bearer <jwt_token>" -H "Content-Type: application/json" \
+     -d '{"category": "public"}' http://localhost:8080/query/search_user_content
+
+# Request with both header and JWT middleware
+curl -X POST -H "X-Tenant-ID: acme" -H "Authorization: Bearer <jwt_token>" \
+     -H "Content-Type: application/json" -d '{}' \
+     http://localhost:8080/query/get_tenant_user_data
 ```
+
+### JWT/JWKS Authentication Setup
+
+For development and testing with JWT authentication, you can use the included [JWKS Mock API](https://github.com/shogotsuneto/jwks-mock-api):
+
+```bash
+# Download and start JWKS Mock API (provides JWKS endpoint and token generation)
+curl -L -o jwks-mock-api https://github.com/shogotsuneto/jwks-mock-api/releases/download/v0.0.4/jwks-mock-api-v0.0.4-linux-amd64
+chmod +x jwks-mock-api
+./jwks-mock-api &
+
+# Generate a test JWT token
+JWT_TOKEN=$(curl -s -X POST http://localhost:3000/generate-token \
+  -H "Content-Type: application/json" \
+  -d '{
+    "claims": {
+      "sub": "123",
+      "role": "admin", 
+      "email": "user@example.com"
+    },
+    "expiresIn": 3600
+  }' | jq -r '.token')
+
+# Use the token in requests
+curl -X POST -H "Authorization: Bearer $JWT_TOKEN" \
+     -H "Content-Type: application/json" \
+     -d '{}' http://localhost:8080/query/get_user_profile
+```
+
+**JWT Configuration Options:**
+- **Optional Authentication**: Set `required: false` to allow requests without tokens
+- **Required Authentication**: Set `required: true` to reject unauthenticated requests  
+- **Claims Mapping**: Configure which JWT claims map to which SQL parameters
+- **Issuer/Audience Validation**: Optional validation of JWT issuer and audience fields
 
 ## Usage
 
@@ -188,8 +251,10 @@ With PostgreSQL (recommended):
 # Start PostgreSQL database first (optional - server starts without database)
 docker compose up -d postgres
 
-# Start the server
-./server --db-config ./example/database.yaml --queries-config ./example/queries.yaml
+# Start the server with middleware support
+./server --db-config ./example/database.yaml \
+         --queries-config ./example/queries.yaml \
+         --server-config ./example/server.yaml
 
 # Start the server with middleware configuration
 ./server --db-config ./example/database.yaml --queries-config ./example/queries.yaml --server-config ./example/server.yaml
@@ -348,6 +413,7 @@ See [integration/README.md](integration/README.md) for detailed integration test
 - ✅ **SQL parameter binding with :param syntax**
 - ✅ **Middleware system with configurable request processing**
 - ✅ **HTTP header middleware for parameter injection**
+- ✅ **JWT/JWKS authentication middleware with configurable claims mapping**
 - ✅ **Docker Compose setup with sample database**
 - ✅ Command-line interface with flags
 - ✅ Error handling and logging
@@ -357,7 +423,7 @@ See [integration/README.md](integration/README.md) for detailed integration test
 - [ ] MySQL and SQLite database support
 - [ ] Database connection pooling configuration
 - [ ] Query result caching
-- [ ] Authentication and authorization middleware
+- [ ] OAuth 2.0 introspection endpoint support
 - [ ] Rate limiting middleware
 - [ ] Request logging middleware
 - [ ] Custom middleware plugin system
