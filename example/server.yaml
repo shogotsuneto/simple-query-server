@@ -1,0 +1,17 @@
+# Example server configuration with middleware
+# This file demonstrates how to configure middleware for the simple-query-server
+
+middleware:
+  # HTTP header middleware - extracts user ID from X-User-ID header
+  - type: "http-header"
+    config:
+      header: "X-User-ID"      # HTTP header name to extract
+      parameter: "user_id"     # SQL parameter name to set
+      required: false          # Whether the header is required
+  
+  # HTTP header middleware - extracts tenant ID from X-Tenant-ID header  
+  - type: "http-header"
+    config:
+      header: "X-Tenant-ID"
+      parameter: "tenant_id"
+      required: false

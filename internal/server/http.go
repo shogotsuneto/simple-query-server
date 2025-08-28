@@ -8,14 +8,16 @@ import (
 	"strings"
 
 	"github.com/shogotsuneto/simple-query-server/internal/config"
+	"github.com/shogotsuneto/simple-query-server/internal/middleware"
 	"github.com/shogotsuneto/simple-query-server/internal/query"
 )
 
 // Server represents the HTTP server
 type Server struct {
-	dbConfig      *config.DatabaseConfig
-	queriesConfig *config.QueriesConfig
-	executor      query.QueryExecutor
+	dbConfig        *config.DatabaseConfig
+	queriesConfig   *config.QueriesConfig
+	middlewareChain middleware.Chain
+	executor        query.QueryExecutor
 }
 
 // Response represents the JSON response structure
@@ -25,15 +27,23 @@ type Response struct {
 }
 
 // New creates a new Server instance
-func New(dbConfig *config.DatabaseConfig, queriesConfig *config.QueriesConfig) (*Server, error) {
+func New(dbConfig *config.DatabaseConfig, queriesConfig *config.QueriesConfig, serverConfig *config.ServerConfig) (*Server, error) {
 	executor, err := query.NewQueryExecutor(dbConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create query executor: %w", err)
 	}
+
+	// Create middleware chain
+	middlewareChain, err := middleware.CreateMiddlewareChain(serverConfig)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create middleware chain: %w", err)
+	}
+
 	return &Server{
-		dbConfig:      dbConfig,
-		queriesConfig: queriesConfig,
-		executor:      executor,
+		dbConfig:        dbConfig,
+		queriesConfig:   queriesConfig,
+		middlewareChain: middlewareChain,
+		executor:        executor,
 	}, nil
 }
 
@@ -42,7 +52,10 @@ func (s *Server) Start(port string) error {
 	http.HandleFunc("/", s.handleRoot)
 	http.HandleFunc("/health", s.handleHealth)
 	http.HandleFunc("/queries", s.handleListQueries)
-	http.HandleFunc("/query/", s.handleQuery)
+
+	// Wrap the query handler with middleware chain
+	queryHandler := s.middlewareChain.Wrap(s.handleQuery)
+	http.HandleFunc("/query/", queryHandler)
 
 	addr := ":" + port
 	log.Printf("Server starting on %s", addr)
@@ -117,10 +130,17 @@ func (s *Server) handleListQueries(w http.ResponseWriter, r *http.Request) {
 
 	queries := make(map[string]interface{})
 	for name, query := range s.queriesConfig.Queries {
-		queries[name] = map[string]interface{}{
+		queryInfo := map[string]interface{}{
 			"sql":    query.SQL,
-			"params": query.Params,
+			"params": query.Params, // Body parameters
 		}
+
+		// Add middleware parameters if they exist
+		if len(query.MiddlewareParams) > 0 {
+			queryInfo["middleware_params"] = query.MiddlewareParams
+		}
+
+		queries[name] = queryInfo
 	}
 
 	response := map[string]interface{}{
@@ -153,14 +173,29 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Parse request body as JSON
-	var params map[string]interface{}
-	if err := json.NewDecoder(r.Body).Decode(&params); err != nil {
+	var allBodyParams map[string]interface{}
+	if err := json.NewDecoder(r.Body).Decode(&allBodyParams); err != nil {
 		s.writeErrorResponse(w, "Invalid JSON in request body", http.StatusBadRequest)
 		return
 	}
 
-	// Execute the query
-	rows, err := s.executor.Execute(queryConfig, params)
+	// Filter body parameters to only include those defined in the YAML configuration
+	bodyParams := s.filterBodyParametersByYAMLDefinition(queryConfig, allBodyParams)
+
+	// Extract middleware parameters from request context (set by middleware chain)
+	middlewareParams := middleware.GetMiddlewareParams(r)
+
+	// Merge parameters for query execution (body params + middleware params)
+	allParams := make(map[string]interface{})
+	for k, v := range bodyParams {
+		allParams[k] = v
+	}
+	for k, v := range middlewareParams {
+		allParams[k] = v
+	}
+
+	// Execute the query with all parameters
+	rows, err := s.executor.Execute(queryConfig, allParams)
 	if err != nil {
 		log.Printf("Query execution error: %v", err)
 		// Check if this is a client error (invalid parameters) vs server error
@@ -184,4 +219,23 @@ func (s *Server) writeErrorResponse(w http.ResponseWriter, message string, statu
 	w.WriteHeader(statusCode)
 	response := Response{Error: message}
 	json.NewEncoder(w).Encode(response)
+}
+
+// filterBodyParametersByYAMLDefinition filters body parameters to only include those defined in the YAML configuration
+func (s *Server) filterBodyParametersByYAMLDefinition(queryConfig config.Query, allBodyParams map[string]interface{}) map[string]interface{} {
+	// Create a set of valid body parameter names from YAML configuration
+	validBodyParamNames := make(map[string]bool)
+	for _, param := range queryConfig.Params {
+		validBodyParamNames[param.Name] = true
+	}
+
+	// Filter body parameters to only include those defined in the YAML
+	filteredParams := make(map[string]interface{})
+	for paramName, value := range allBodyParams {
+		if validBodyParamNames[paramName] {
+			filteredParams[paramName] = value
+		}
+	}
+
+	return filteredParams
 }
