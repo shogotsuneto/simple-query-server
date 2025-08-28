@@ -24,28 +24,31 @@ func NewHTTPHeaderMiddleware(config HTTPHeaderConfig) *HTTPHeaderMiddleware {
 	}
 }
 
-// Process extracts the configured header value and adds it to parameters
-func (m *HTTPHeaderMiddleware) Process(r *http.Request, params map[string]interface{}) (map[string]interface{}, error) {
-	headerValue := r.Header.Get(m.config.Header)
+// Wrap wraps an http.HandlerFunc with this middleware
+func (m *HTTPHeaderMiddleware) Wrap(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		headerValue := r.Header.Get(m.config.Header)
 
-	if headerValue == "" {
-		if m.config.Required {
-			return nil, fmt.Errorf("required header '%s' is missing", m.config.Header)
+		if headerValue == "" {
+			if m.config.Required {
+				http.Error(w, fmt.Sprintf("required header '%s' is missing", m.config.Header), http.StatusBadRequest)
+				return
+			}
+			// If not required and missing, just continue without adding the parameter
+			next.ServeHTTP(w, r)
+			return
 		}
-		// If not required and missing, just return params unchanged
-		return params, nil
+
+		// Get existing middleware parameters from context
+		params := GetMiddlewareParams(r)
+		
+		// Add the header value as a parameter
+		params[m.config.Parameter] = headerValue
+
+		// Set updated parameters in context and continue
+		r = SetMiddlewareParams(r, params)
+		next.ServeHTTP(w, r)
 	}
-
-	// Make a copy of params to avoid modifying the original map
-	result := make(map[string]interface{})
-	for k, v := range params {
-		result[k] = v
-	}
-
-	// Add the header value as a parameter
-	result[m.config.Parameter] = headerValue
-
-	return result, nil
 }
 
 // Name returns the name of this middleware

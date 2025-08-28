@@ -52,7 +52,10 @@ func (s *Server) Start(port string) error {
 	http.HandleFunc("/", s.handleRoot)
 	http.HandleFunc("/health", s.handleHealth)
 	http.HandleFunc("/queries", s.handleListQueries)
-	http.HandleFunc("/query/", s.handleQuery)
+	
+	// Wrap the query handler with middleware chain
+	queryHandler := s.middlewareChain.Wrap(s.handleQuery)
+	http.HandleFunc("/query/", queryHandler)
 
 	addr := ":" + port
 	log.Printf("Server starting on %s", addr)
@@ -179,13 +182,8 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 	// Filter body parameters to only include those defined in the YAML configuration
 	bodyParams := s.filterBodyParametersByYAMLDefinition(queryConfig, allBodyParams)
 
-	// Process middleware chain to extract middleware parameters
-	middlewareParams, err := s.middlewareChain.Process(r, make(map[string]interface{}))
-	if err != nil {
-		log.Printf("Middleware processing error: %v", err)
-		s.writeErrorResponse(w, err.Error(), http.StatusBadRequest)
-		return
-	}
+	// Extract middleware parameters from request context (set by middleware chain)
+	middlewareParams := middleware.GetMiddlewareParams(r)
 
 	// Merge parameters for query execution (body params + middleware params)
 	allParams := make(map[string]interface{})

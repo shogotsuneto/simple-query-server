@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"net/http"
+	"net/http/httptest"
 	"testing"
 )
 
@@ -15,23 +16,30 @@ func TestHTTPHeaderMiddleware(t *testing.T) {
 		}
 		middleware := NewHTTPHeaderMiddleware(config)
 
+		// Create a test handler that checks the context
+		var capturedParams map[string]interface{}
+		testHandler := func(w http.ResponseWriter, r *http.Request) {
+			capturedParams = GetMiddlewareParams(r)
+			w.WriteHeader(http.StatusOK)
+		}
+
+		// Wrap the handler with middleware
+		wrappedHandler := middleware.Wrap(testHandler)
+
 		// Create a request with the header
 		req, _ := http.NewRequest("POST", "/", nil)
 		req.Header.Set("X-User-ID", "123")
+		rr := httptest.NewRecorder()
 
-		params := map[string]interface{}{"existing": "value"}
-		result, err := middleware.Process(req, params)
+		// Call the wrapped handler
+		wrappedHandler(rr, req)
 
-		if err != nil {
-			t.Fatalf("Expected no error, got %v", err)
+		if rr.Code != http.StatusOK {
+			t.Errorf("Expected status OK, got %v", rr.Code)
 		}
 
-		if result["user_id"] != "123" {
-			t.Errorf("Expected user_id=123, got %v", result["user_id"])
-		}
-
-		if result["existing"] != "value" {
-			t.Errorf("Expected existing parameter to be preserved")
+		if capturedParams["user_id"] != "123" {
+			t.Errorf("Expected user_id=123, got %v", capturedParams["user_id"])
 		}
 	})
 
@@ -44,18 +52,19 @@ func TestHTTPHeaderMiddleware(t *testing.T) {
 		}
 		middleware := NewHTTPHeaderMiddleware(config)
 
-		req, _ := http.NewRequest("POST", "/", nil)
-		params := map[string]interface{}{}
-
-		_, err := middleware.Process(req, params)
-
-		if err == nil {
-			t.Fatal("Expected error for missing required header")
+		testHandler := func(w http.ResponseWriter, r *http.Request) {
+			t.Error("Handler should not be called when required header is missing")
 		}
 
-		expected := "required header 'X-User-ID' is missing"
-		if err.Error() != expected {
-			t.Errorf("Expected error '%s', got '%s'", expected, err.Error())
+		wrappedHandler := middleware.Wrap(testHandler)
+
+		req, _ := http.NewRequest("POST", "/", nil)
+		rr := httptest.NewRecorder()
+
+		wrappedHandler(rr, req)
+
+		if rr.Code != http.StatusBadRequest {
+			t.Errorf("Expected status BadRequest, got %v", rr.Code)
 		}
 	})
 
@@ -68,21 +77,25 @@ func TestHTTPHeaderMiddleware(t *testing.T) {
 		}
 		middleware := NewHTTPHeaderMiddleware(config)
 
+		var capturedParams map[string]interface{}
+		testHandler := func(w http.ResponseWriter, r *http.Request) {
+			capturedParams = GetMiddlewareParams(r)
+			w.WriteHeader(http.StatusOK)
+		}
+
+		wrappedHandler := middleware.Wrap(testHandler)
+
 		req, _ := http.NewRequest("POST", "/", nil)
-		params := map[string]interface{}{"existing": "value"}
+		rr := httptest.NewRecorder()
 
-		result, err := middleware.Process(req, params)
+		wrappedHandler(rr, req)
 
-		if err != nil {
-			t.Fatalf("Expected no error, got %v", err)
+		if rr.Code != http.StatusOK {
+			t.Errorf("Expected status OK, got %v", rr.Code)
 		}
 
-		if _, exists := result["user_id"]; exists {
+		if _, exists := capturedParams["user_id"]; exists {
 			t.Errorf("Expected user_id parameter not to be added when header is missing")
-		}
-
-		if result["existing"] != "value" {
-			t.Errorf("Expected existing parameter to be preserved")
 		}
 	})
 }
@@ -105,27 +118,32 @@ func TestMiddlewareChain(t *testing.T) {
 
 	chain := Chain{middleware1, middleware2}
 
+	var capturedParams map[string]interface{}
+	testHandler := func(w http.ResponseWriter, r *http.Request) {
+		capturedParams = GetMiddlewareParams(r)
+		w.WriteHeader(http.StatusOK)
+	}
+
+	// Wrap handler with middleware chain
+	wrappedHandler := chain.Wrap(testHandler)
+
 	// Create request with both headers
 	req, _ := http.NewRequest("POST", "/", nil)
 	req.Header.Set("X-User-ID", "123")
 	req.Header.Set("X-Tenant-ID", "tenant456")
+	rr := httptest.NewRecorder()
 
-	params := map[string]interface{}{"original": "param"}
-	result, err := chain.Process(req, params)
+	wrappedHandler(rr, req)
 
-	if err != nil {
-		t.Fatalf("Expected no error, got %v", err)
+	if rr.Code != http.StatusOK {
+		t.Errorf("Expected status OK, got %v", rr.Code)
 	}
 
-	if result["user_id"] != "123" {
-		t.Errorf("Expected user_id=123, got %v", result["user_id"])
+	if capturedParams["user_id"] != "123" {
+		t.Errorf("Expected user_id=123, got %v", capturedParams["user_id"])
 	}
 
-	if result["tenant_id"] != "tenant456" {
-		t.Errorf("Expected tenant_id=tenant456, got %v", result["tenant_id"])
-	}
-
-	if result["original"] != "param" {
-		t.Errorf("Expected original parameter to be preserved")
+	if capturedParams["tenant_id"] != "tenant456" {
+		t.Errorf("Expected tenant_id=tenant456, got %v", capturedParams["tenant_id"])
 	}
 }
