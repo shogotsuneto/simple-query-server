@@ -170,17 +170,14 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Parse request body as JSON
-	var bodyParams map[string]interface{}
-	if err := json.NewDecoder(r.Body).Decode(&bodyParams); err != nil {
+	var allBodyParams map[string]interface{}
+	if err := json.NewDecoder(r.Body).Decode(&allBodyParams); err != nil {
 		s.writeErrorResponse(w, "Invalid JSON in request body", http.StatusBadRequest)
 		return
 	}
 
-	// Validate that body parameters don't conflict with middleware parameters
-	if err := s.validateParameterSeparation(queryConfig, bodyParams); err != nil {
-		s.writeErrorResponse(w, err.Error(), http.StatusBadRequest)
-		return
-	}
+	// Filter body parameters to only include those defined in the YAML configuration
+	bodyParams := s.filterBodyParametersByYAMLDefinition(queryConfig, allBodyParams)
 
 	// Process middleware chain to extract middleware parameters
 	middlewareParams, err := s.middlewareChain.Process(r, make(map[string]interface{}))
@@ -226,20 +223,21 @@ func (s *Server) writeErrorResponse(w http.ResponseWriter, message string, statu
 	json.NewEncoder(w).Encode(response)
 }
 
-// validateParameterSeparation ensures body parameters don't conflict with middleware parameters
-func (s *Server) validateParameterSeparation(queryConfig config.Query, bodyParams map[string]interface{}) error {
-	// Create a set of middleware parameter names
-	middlewareParamNames := make(map[string]bool)
-	for _, param := range queryConfig.MiddlewareParams {
-		middlewareParamNames[param.Name] = true
+// filterBodyParametersByYAMLDefinition filters body parameters to only include those defined in the YAML configuration
+func (s *Server) filterBodyParametersByYAMLDefinition(queryConfig config.Query, allBodyParams map[string]interface{}) map[string]interface{} {
+	// Create a set of valid body parameter names from YAML configuration
+	validBodyParamNames := make(map[string]bool)
+	for _, param := range queryConfig.Params {
+		validBodyParamNames[param.Name] = true
 	}
 
-	// Check if any body parameter conflicts with middleware parameters
-	for paramName := range bodyParams {
-		if middlewareParamNames[paramName] {
-			return fmt.Errorf("parameter '%s' is reserved for middleware injection and cannot be provided in request body", paramName)
+	// Filter body parameters to only include those defined in the YAML
+	filteredParams := make(map[string]interface{})
+	for paramName, value := range allBodyParams {
+		if validBodyParamNames[paramName] {
+			filteredParams[paramName] = value
 		}
 	}
 
-	return nil
+	return filteredParams
 }
