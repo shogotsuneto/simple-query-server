@@ -9,3 +9,10 @@ queries:
   simple_test:
     sql: "SELECT 'hello world' as greeting"
     params: []
+    
+  # Test query that uses middleware-injected parameter
+  test_user_id:
+    sql: "SELECT 'user query' as message, :user_id as user_id"
+    params:
+      - name: user_id
+        type: string

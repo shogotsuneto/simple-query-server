@@ -8,14 +8,16 @@ import (
 	"strings"
 
 	"github.com/shogotsuneto/simple-query-server/internal/config"
+	"github.com/shogotsuneto/simple-query-server/internal/middleware"
 	"github.com/shogotsuneto/simple-query-server/internal/query"
 )
 
 // Server represents the HTTP server
 type Server struct {
-	dbConfig      *config.DatabaseConfig
-	queriesConfig *config.QueriesConfig
-	executor      query.QueryExecutor
+	dbConfig         *config.DatabaseConfig
+	queriesConfig    *config.QueriesConfig
+	middlewareChain  middleware.Chain
+	executor         query.QueryExecutor
 }
 
 // Response represents the JSON response structure
@@ -25,15 +27,23 @@ type Response struct {
 }
 
 // New creates a new Server instance
-func New(dbConfig *config.DatabaseConfig, queriesConfig *config.QueriesConfig) (*Server, error) {
+func New(dbConfig *config.DatabaseConfig, queriesConfig *config.QueriesConfig, serverConfig *config.ServerConfig) (*Server, error) {
 	executor, err := query.NewQueryExecutor(dbConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create query executor: %w", err)
 	}
+	
+	// Create middleware chain
+	middlewareChain, err := middleware.CreateMiddlewareChain(serverConfig)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create middleware chain: %w", err)
+	}
+	
 	return &Server{
-		dbConfig:      dbConfig,
-		queriesConfig: queriesConfig,
-		executor:      executor,
+		dbConfig:        dbConfig,
+		queriesConfig:   queriesConfig,
+		middlewareChain: middlewareChain,
+		executor:        executor,
 	}, nil
 }
 
@@ -159,8 +169,16 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Execute the query
-	rows, err := s.executor.Execute(queryConfig, params)
+	// Process middleware chain to potentially add more parameters
+	processedParams, err := s.middlewareChain.Process(r, params)
+	if err != nil {
+		log.Printf("Middleware processing error: %v", err)
+		s.writeErrorResponse(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	// Execute the query with processed parameters
+	rows, err := s.executor.Execute(queryConfig, processedParams)
 	if err != nil {
 		log.Printf("Query execution error: %v", err)
 		// Check if this is a client error (invalid parameters) vs server error

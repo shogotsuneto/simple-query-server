@@ -14,6 +14,7 @@ func main() {
 	var (
 		dbConfigPath      = flag.String("db-config", "", "Path to database configuration YAML file")
 		queriesConfigPath = flag.String("queries-config", "", "Path to queries configuration YAML file")
+		serverConfigPath  = flag.String("server-config", "", "Path to server configuration YAML file (optional)")
 		port              = flag.String("port", "8080", "Port to run the server on")
 		help              = flag.Bool("help", false, "Show help message")
 	)
@@ -35,6 +36,9 @@ func main() {
 	log.Printf("Starting simple-query-server...")
 	log.Printf("Database config: %s", *dbConfigPath)
 	log.Printf("Queries config: %s", *queriesConfigPath)
+	if *serverConfigPath != "" {
+		log.Printf("Server config: %s", *serverConfigPath)
+	}
 	log.Printf("Port: %s", *port)
 
 	// Load configurations
@@ -50,8 +54,18 @@ func main() {
 
 	log.Printf("Loaded %d queries from configuration", len(queriesConfig.Queries))
 
+	// Load server configuration if provided
+	var serverConfig *config.ServerConfig
+	if *serverConfigPath != "" {
+		serverConfig, err = config.LoadServerConfig(*serverConfigPath)
+		if err != nil {
+			log.Fatalf("Failed to load server config: %v", err)
+		}
+		log.Printf("Loaded %d middleware configurations", len(serverConfig.Middleware))
+	}
+
 	// Start HTTP server
-	srv, err := server.New(dbConfig, queriesConfig)
+	srv, err := server.New(dbConfig, queriesConfig, serverConfig)
 	if err != nil {
 		log.Fatalf("Failed to create server: %v", err)
 	}

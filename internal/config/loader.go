@@ -30,6 +30,17 @@ type QueriesConfig struct {
 	Queries map[string]Query `yaml:"queries"`
 }
 
+// MiddlewareConfig represents a single middleware configuration
+type MiddlewareConfig struct {
+	Type   string                 `yaml:"type"`   // Type of middleware (e.g., "http-header")
+	Config map[string]interface{} `yaml:"config"` // Middleware-specific configuration
+}
+
+// ServerConfig represents the server configuration including middleware
+type ServerConfig struct {
+	Middleware []MiddlewareConfig `yaml:"middleware,omitempty"`
+}
+
 // LoadDatabaseConfig loads database configuration from a YAML file
 func LoadDatabaseConfig(path string) (*DatabaseConfig, error) {
 	data, err := os.ReadFile(path)
@@ -74,6 +85,21 @@ func LoadQueriesConfig(path string) (*QueriesConfig, error) {
 		if query.SQL == "" {
 			return nil, fmt.Errorf("query %s must have SQL defined", name)
 		}
+	}
+
+	return &config, nil
+}
+
+// LoadServerConfig loads server configuration from a YAML file
+func LoadServerConfig(path string) (*ServerConfig, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read server config file %s: %w", path, err)
+	}
+
+	var config ServerConfig
+	if err := yaml.Unmarshal(data, &config); err != nil {
+		return nil, fmt.Errorf("failed to parse server config YAML: %w", err)
 	}
 
 	return &config, nil

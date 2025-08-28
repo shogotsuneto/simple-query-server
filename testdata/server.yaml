@@ -1,0 +1,8 @@
+# Test server configuration with simple middleware
+middleware:
+  # Simple middleware that extracts X-User-ID header
+  - type: "http-header"
+    config:
+      header: "X-User-ID"
+      parameter: "user_id"
+      required: false

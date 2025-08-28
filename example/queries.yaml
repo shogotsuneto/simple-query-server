@@ -43,3 +43,19 @@ queries:
   get_all_active_users:
     sql: "SELECT id, name, email FROM users WHERE active = true ORDER BY name"
     params: []
+    
+  # Query that can use middleware-injected user_id parameter
+  get_current_user:
+    sql: "SELECT id, name, email FROM users WHERE id = :user_id"
+    params:
+      - name: user_id
+        type: string
+        
+  # Query that uses both regular parameters and middleware-injected parameters  
+  get_user_by_tenant:
+    sql: "SELECT id, name, email FROM users WHERE id = :id AND tenant_id = :tenant_id"
+    params:
+      - name: id
+        type: int
+      - name: tenant_id
+        type: string
