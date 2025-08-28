@@ -148,7 +148,7 @@ middleware:
       required: false          # Whether the header is required (default: false)
   
   # JWT/JWKS verification middleware - verifies JWT tokens and extracts claims
-  - type: "jwks-verification"
+  - type: "bearer-jwks"
     config:
       jwks_url: "http://localhost:3000/.well-known/jwks.json"  # JWKS endpoint URL
       required: false                                          # Whether auth is mandatory
@@ -173,7 +173,7 @@ middleware:
   - `parameter`: Name of the SQL parameter to inject the header value into
   - `required`: Whether the header is required (if true, returns 400 Bad Request when missing)
 
-- **`jwks-verification`**: Verifies JWT tokens using JWKS endpoints and extracts claims as SQL parameters
+- **`bearer-jwks`**: Verifies JWT tokens using JWKS endpoints and extracts claims as SQL parameters
   - `jwks_url`: URL to fetch JWKS from (e.g., `http://localhost:3000/.well-known/jwks.json`)
   - `required`: Whether authentication is mandatory (if true, returns 401 Unauthorized when missing/invalid)
   - `claims_mapping`: Map JWT claims to SQL parameter names (e.g., `{"sub": "user_id", "role": "user_role"}`)

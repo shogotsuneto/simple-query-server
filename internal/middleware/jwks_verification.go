@@ -206,5 +206,5 @@ func (m *JWKSVerificationMiddleware) getPublicKey(kid string) (*rsa.PublicKey, e
 
 // Name returns the name of this middleware
 func (m *JWKSVerificationMiddleware) Name() string {
-	return fmt.Sprintf("jwks-verification(%s)", m.config.JWKSURL)
+	return fmt.Sprintf("bearer-jwks(%s)", m.config.JWKSURL)
 }

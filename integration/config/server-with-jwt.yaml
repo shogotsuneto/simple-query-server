@@ -3,7 +3,7 @@
 
 middleware:
   # JWKS verification middleware for testing
-  - type: "jwks-verification"
+  - type: "bearer-jwks"
     config:
       jwks_url: "http://localhost:3000/.well-known/jwks.json"  # JWKS mock API endpoint
       required: false                                          # Start with optional for easier testing

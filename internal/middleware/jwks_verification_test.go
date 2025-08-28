@@ -131,7 +131,7 @@ func TestJWKSVerificationMiddleware_Name(t *testing.T) {
 	}
 	middleware := NewJWKSVerificationMiddleware(config)
 
-	expectedName := "jwks-verification(http://localhost:3000/.well-known/jwks.json)"
+	expectedName := "bearer-jwks(http://localhost:3000/.well-known/jwks.json)"
 	if middleware.Name() != expectedName {
 		t.Errorf("Expected name %s, got %s", expectedName, middleware.Name())
 	}
