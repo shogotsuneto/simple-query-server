@@ -49,34 +49,52 @@ func (e *PostgreSQLExecutor) Execute(queryConfig config.Query, params map[string
 
 // validateParameters validates that required parameters are provided with correct types
 func (e *PostgreSQLExecutor) validateParameters(queryConfig config.Query, params map[string]interface{}) error {
+	// Validate regular body parameters
 	for _, param := range queryConfig.Params {
-		value, exists := params[param.Name]
-		if !exists {
-			return NewClientErrorf("required parameter '%s' is missing", param.Name)
-		}
-
-		// Basic type validation
-		switch param.Type {
-		case "int":
-			switch v := value.(type) {
-			case int, int32, int64, float64:
-				// JSON numbers are parsed as float64, so we accept them for int parameters
-			default:
-				return NewClientErrorf("parameter '%s' must be an integer, got %T", param.Name, v)
-			}
-		case "string":
-			if _, ok := value.(string); !ok {
-				return NewClientErrorf("parameter '%s' must be a string, got %T", param.Name, value)
-			}
-		case "float":
-			switch value.(type) {
-			case float32, float64, int, int32, int64:
-				// Accept numeric types for float parameters
-			default:
-				return NewClientErrorf("parameter '%s' must be a number, got %T", param.Name, value)
-			}
+		if err := e.validateParameter(param, params); err != nil {
+			return err
 		}
 	}
+
+	// Validate middleware parameters
+	for _, param := range queryConfig.MiddlewareParams {
+		if err := e.validateParameter(param, params); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// validateParameter validates a single parameter
+func (e *PostgreSQLExecutor) validateParameter(param config.QueryParam, params map[string]interface{}) error {
+	value, exists := params[param.Name]
+	if !exists {
+		return NewClientErrorf("required parameter '%s' is missing", param.Name)
+	}
+
+	// Basic type validation
+	switch param.Type {
+	case "int":
+		switch v := value.(type) {
+		case int, int32, int64, float64:
+			// JSON numbers are parsed as float64, so we accept them for int parameters
+		default:
+			return NewClientErrorf("parameter '%s' must be an integer, got %T", param.Name, v)
+		}
+	case "string":
+		if _, ok := value.(string); !ok {
+			return NewClientErrorf("parameter '%s' must be a string, got %T", param.Name, value)
+		}
+	case "float":
+		switch value.(type) {
+		case float32, float64, int, int32, int64:
+			// Accept numeric types for float parameters
+		default:
+			return NewClientErrorf("parameter '%s' must be a number, got %T", param.Name, value)
+		}
+	}
+
 	return nil
 }
 

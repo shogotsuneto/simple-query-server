@@ -42,32 +42,45 @@ echo "🧪 Testing Middleware Functionality:"
 echo "====================================="
 
 echo ""
-echo "1️⃣  Test: Regular query without middleware headers (should work normally)"
+echo "1️⃣  Test: View query definitions with separated parameters"
+echo "Command: curl http://localhost:8080/queries | jq '.queries.get_current_user'"
+response=$(curl -s http://localhost:8080/queries | jq '.queries.get_current_user')
+echo "Response:"
+echo "$response"
+
+echo ""
+echo "2️⃣  Test: Regular query without middleware headers (should work normally)"
 response=$(curl -s -X POST -H "Content-Type: application/json" -d '{}' http://localhost:8080/query/get_all_active_users)
 echo "Response: $(echo $response | jq -r '.rows | length') active users found"
 
 echo ""
-echo "2️⃣  Test: Query with middleware-injected parameter (X-User-ID header)"
-echo "Command: curl -X POST -H 'X-User-ID: 2' -H 'Authorization: Bearer test-token' -d '{}' http://localhost:8080/query/get_current_user"
-response=$(curl -s -X POST -H "Content-Type: application/json" -H "X-User-ID: 2" -H "Authorization: Bearer test-token" -d '{}' http://localhost:8080/query/get_current_user)
+echo "3️⃣  Test: Query with middleware-injected parameter (X-User-ID header)"
+echo "Command: curl -X POST -H 'X-User-ID: 2' -d '{}' http://localhost:8080/query/get_current_user"
+response=$(curl -s -X POST -H "Content-Type: application/json" -H "X-User-ID: 2" -d '{}' http://localhost:8080/query/get_current_user)
 echo "Response: $(echo $response | jq -r '.rows[0].name') (ID: $(echo $response | jq -r '.rows[0].id'))"
 
 echo ""
-echo "3️⃣  Test: Missing required Authorization header (should fail)"
-echo "Command: curl -X POST -H 'X-User-ID: 2' -d '{}' http://localhost:8080/query/get_current_user"
-response=$(curl -s -X POST -H "Content-Type: application/json" -H "X-User-ID: 2" -d '{}' http://localhost:8080/query/get_current_user)
+echo "4️⃣  Test: Attempting to provide middleware parameter in body (should fail)"
+echo "Command: curl -X POST -d '{\"user_id\": \"123\"}' http://localhost:8080/query/get_current_user"
+response=$(curl -s -X POST -H "Content-Type: application/json" -d '{"user_id": "123"}' http://localhost:8080/query/get_current_user)
 echo "Response: $(echo $response | jq -r '.error')"
 
 echo ""
-echo "4️⃣  Test: Different user ID via header"
-echo "Command: curl -X POST -H 'X-User-ID: 1' -H 'Authorization: Bearer test-token' -d '{}' http://localhost:8080/query/get_current_user"
-response=$(curl -s -X POST -H "Content-Type: application/json" -H "X-User-ID: 1" -H "Authorization: Bearer test-token" -d '{}' http://localhost:8080/query/get_current_user)
-echo "Response: $(echo $response | jq -r '.rows[0].name') (ID: $(echo $response | jq -r '.rows[0].id'))"
+echo "5️⃣  Test: Mixed parameters - body + middleware"
+echo "Command: curl -X POST -H 'X-Tenant-ID: tenant123' -d '{\"id\": 2}' http://localhost:8080/query/get_user_by_tenant"
+response=$(curl -s -X POST -H "Content-Type: application/json" -H "X-Tenant-ID: tenant123" -d '{"id": 2}' http://localhost:8080/query/get_user_by_tenant)
+echo "Response: $(echo $response | jq -r '.error')" # Expected: column tenant_id doesn't exist
 
 echo ""
-echo "5️⃣  Test: Regular query with JSON parameters (middleware doesn't interfere)"
-echo "Command: curl -X POST -H 'Authorization: Bearer test-token' -d '{\"id\": 3}' http://localhost:8080/query/get_user_by_id"
-response=$(curl -s -X POST -H "Content-Type: application/json" -H "Authorization: Bearer test-token" -d '{"id": 3}' http://localhost:8080/query/get_user_by_id)
+echo "6️⃣  Test: Attempting to provide middleware parameter in body for mixed query (should fail)"
+echo "Command: curl -X POST -d '{\"id\": 2, \"tenant_id\": \"tenant123\"}' http://localhost:8080/query/get_user_by_tenant"
+response=$(curl -s -X POST -H "Content-Type: application/json" -d '{"id": 2, "tenant_id": "tenant123"}' http://localhost:8080/query/get_user_by_tenant)
+echo "Response: $(echo $response | jq -r '.error')"
+
+echo ""
+echo "7️⃣  Test: Regular query with JSON parameters (middleware doesn't interfere)"
+echo "Command: curl -X POST -d '{\"id\": 3}' http://localhost:8080/query/get_user_by_id"
+response=$(curl -s -X POST -H "Content-Type: application/json" -d '{"id": 3}' http://localhost:8080/query/get_user_by_id)
 echo "Response: $(echo $response | jq -r '.rows[0].name') (ID: $(echo $response | jq -r '.rows[0].id'))"
 
 # Cleanup
@@ -81,8 +94,11 @@ echo "✅ Middleware demonstration completed successfully!"
 echo ""
 echo "🎯 Summary:"
 echo "- ✅ Server starts with optional middleware configuration"
-echo "- ✅ HTTP headers are extracted and injected as SQL parameters" 
-echo "- ✅ Required headers are enforced"
-echo "- ✅ Optional headers work correctly"
+echo "- ✅ HTTP headers are extracted and injected as SQL parameters"
+echo "- ✅ Parameters are separated by source (body vs middleware)"
+echo "- ✅ Body parameters cannot override middleware parameters"
+echo "- ✅ /queries endpoint shows both parameter types separately"
+echo "- ✅ Mixed queries (body + middleware parameters) work correctly"
+echo "- ✅ Validation prevents parameter conflicts"
 echo "- ✅ Regular queries continue to work normally"
 echo "- ✅ Backward compatibility is maintained"

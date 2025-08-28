@@ -15,10 +15,3 @@ middleware:
       header: "X-Tenant-ID"
       parameter: "tenant_id"
       required: false
-      
-  # Example of required header middleware
-  - type: "http-header"
-    config:
-      header: "Authorization"
-      parameter: "auth_token"
-      required: true

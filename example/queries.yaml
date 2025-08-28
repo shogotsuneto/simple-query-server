@@ -47,7 +47,8 @@ queries:
   # Query that can use middleware-injected user_id parameter
   get_current_user:
     sql: "SELECT id, name, email FROM users WHERE id = :user_id"
-    params:
+    params: []  # No body parameters
+    middleware_params:
       - name: user_id
         type: string
         
@@ -57,5 +58,6 @@ queries:
     params:
       - name: id
         type: int
+    middleware_params:
       - name: tenant_id
         type: string

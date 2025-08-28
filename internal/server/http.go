@@ -127,10 +127,17 @@ func (s *Server) handleListQueries(w http.ResponseWriter, r *http.Request) {
 
 	queries := make(map[string]interface{})
 	for name, query := range s.queriesConfig.Queries {
-		queries[name] = map[string]interface{}{
+		queryInfo := map[string]interface{}{
 			"sql":    query.SQL,
-			"params": query.Params,
+			"params": query.Params, // Body parameters
 		}
+		
+		// Add middleware parameters if they exist
+		if len(query.MiddlewareParams) > 0 {
+			queryInfo["middleware_params"] = query.MiddlewareParams
+		}
+		
+		queries[name] = queryInfo
 	}
 
 	response := map[string]interface{}{
@@ -163,22 +170,37 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Parse request body as JSON
-	var params map[string]interface{}
-	if err := json.NewDecoder(r.Body).Decode(&params); err != nil {
+	var bodyParams map[string]interface{}
+	if err := json.NewDecoder(r.Body).Decode(&bodyParams); err != nil {
 		s.writeErrorResponse(w, "Invalid JSON in request body", http.StatusBadRequest)
 		return
 	}
 
-	// Process middleware chain to potentially add more parameters
-	processedParams, err := s.middlewareChain.Process(r, params)
+	// Validate that body parameters don't conflict with middleware parameters
+	if err := s.validateParameterSeparation(queryConfig, bodyParams); err != nil {
+		s.writeErrorResponse(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	// Process middleware chain to extract middleware parameters
+	middlewareParams, err := s.middlewareChain.Process(r, make(map[string]interface{}))
 	if err != nil {
 		log.Printf("Middleware processing error: %v", err)
 		s.writeErrorResponse(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	// Execute the query with processed parameters
-	rows, err := s.executor.Execute(queryConfig, processedParams)
+	// Merge parameters for query execution (body params + middleware params)
+	allParams := make(map[string]interface{})
+	for k, v := range bodyParams {
+		allParams[k] = v
+	}
+	for k, v := range middlewareParams {
+		allParams[k] = v
+	}
+
+	// Execute the query with all parameters
+	rows, err := s.executor.Execute(queryConfig, allParams)
 	if err != nil {
 		log.Printf("Query execution error: %v", err)
 		// Check if this is a client error (invalid parameters) vs server error
@@ -202,4 +224,22 @@ func (s *Server) writeErrorResponse(w http.ResponseWriter, message string, statu
 	w.WriteHeader(statusCode)
 	response := Response{Error: message}
 	json.NewEncoder(w).Encode(response)
+}
+
+// validateParameterSeparation ensures body parameters don't conflict with middleware parameters
+func (s *Server) validateParameterSeparation(queryConfig config.Query, bodyParams map[string]interface{}) error {
+	// Create a set of middleware parameter names
+	middlewareParamNames := make(map[string]bool)
+	for _, param := range queryConfig.MiddlewareParams {
+		middlewareParamNames[param.Name] = true
+	}
+
+	// Check if any body parameter conflicts with middleware parameters
+	for paramName := range bodyParams {
+		if middlewareParamNames[paramName] {
+			return fmt.Errorf("parameter '%s' is reserved for middleware injection and cannot be provided in request body", paramName)
+		}
+	}
+
+	return nil
 }
