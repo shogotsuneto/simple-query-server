@@ -2,9 +2,9 @@ package middleware
 
 import (
 	"fmt"
-	
-	"gopkg.in/yaml.v3"
+
 	"github.com/shogotsuneto/simple-query-server/internal/config"
+	"gopkg.in/yaml.v3"
 )
 
 // CreateMiddleware creates a middleware instance from configuration
@@ -24,12 +24,12 @@ func createHTTPHeaderMiddleware(configMap map[string]interface{}) (Middleware, e
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal http-header config: %w", err)
 	}
-	
+
 	var httpHeaderConfig HTTPHeaderConfig
 	if err := yaml.Unmarshal(yamlData, &httpHeaderConfig); err != nil {
 		return nil, fmt.Errorf("failed to parse http-header config: %w", err)
 	}
-	
+
 	// Validate required fields
 	if httpHeaderConfig.Header == "" {
 		return nil, fmt.Errorf("http-header middleware requires 'header' field")
@@ -37,7 +37,7 @@ func createHTTPHeaderMiddleware(configMap map[string]interface{}) (Middleware, e
 	if httpHeaderConfig.Parameter == "" {
 		return nil, fmt.Errorf("http-header middleware requires 'parameter' field")
 	}
-	
+
 	return NewHTTPHeaderMiddleware(httpHeaderConfig), nil
 }
 
@@ -46,9 +46,9 @@ func CreateMiddlewareChain(serverConfig *config.ServerConfig) (Chain, error) {
 	if serverConfig == nil || len(serverConfig.Middleware) == 0 {
 		return Chain{}, nil
 	}
-	
+
 	chain := make(Chain, 0, len(serverConfig.Middleware))
-	
+
 	for i, middlewareConfig := range serverConfig.Middleware {
 		middleware, err := CreateMiddleware(middlewareConfig)
 		if err != nil {
@@ -56,6 +56,6 @@ func CreateMiddlewareChain(serverConfig *config.ServerConfig) (Chain, error) {
 		}
 		chain = append(chain, middleware)
 	}
-	
+
 	return chain, nil
 }

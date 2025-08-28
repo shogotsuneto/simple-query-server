@@ -27,7 +27,7 @@ func NewHTTPHeaderMiddleware(config HTTPHeaderConfig) *HTTPHeaderMiddleware {
 // Process extracts the configured header value and adds it to parameters
 func (m *HTTPHeaderMiddleware) Process(r *http.Request, params map[string]interface{}) (map[string]interface{}, error) {
 	headerValue := r.Header.Get(m.config.Header)
-	
+
 	if headerValue == "" {
 		if m.config.Required {
 			return nil, fmt.Errorf("required header '%s' is missing", m.config.Header)
@@ -35,16 +35,16 @@ func (m *HTTPHeaderMiddleware) Process(r *http.Request, params map[string]interf
 		// If not required and missing, just return params unchanged
 		return params, nil
 	}
-	
+
 	// Make a copy of params to avoid modifying the original map
 	result := make(map[string]interface{})
 	for k, v := range params {
 		result[k] = v
 	}
-	
+
 	// Add the header value as a parameter
 	result[m.config.Parameter] = headerValue
-	
+
 	return result, nil
 }
 

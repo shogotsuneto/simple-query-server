@@ -14,10 +14,10 @@ import (
 
 // Server represents the HTTP server
 type Server struct {
-	dbConfig         *config.DatabaseConfig
-	queriesConfig    *config.QueriesConfig
-	middlewareChain  middleware.Chain
-	executor         query.QueryExecutor
+	dbConfig        *config.DatabaseConfig
+	queriesConfig   *config.QueriesConfig
+	middlewareChain middleware.Chain
+	executor        query.QueryExecutor
 }
 
 // Response represents the JSON response structure
@@ -32,13 +32,13 @@ func New(dbConfig *config.DatabaseConfig, queriesConfig *config.QueriesConfig, s
 	if err != nil {
 		return nil, fmt.Errorf("failed to create query executor: %w", err)
 	}
-	
+
 	// Create middleware chain
 	middlewareChain, err := middleware.CreateMiddlewareChain(serverConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create middleware chain: %w", err)
 	}
-	
+
 	return &Server{
 		dbConfig:        dbConfig,
 		queriesConfig:   queriesConfig,
