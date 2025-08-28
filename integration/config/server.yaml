@@ -1,0 +1,22 @@
+# Integration test server configuration with middleware
+middleware:
+  # User ID from header - optional
+  - type: "http-header"
+    config:
+      header: "X-User-ID"
+      parameter: "user_id"
+      required: false
+  
+  # Tenant ID from header - required for tenant-specific queries
+  - type: "http-header"
+    config:
+      header: "X-Tenant-ID"
+      parameter: "tenant_id"
+      required: false
+      
+  # Required auth token for testing required middleware
+  - type: "http-header"
+    config:
+      header: "Authorization"
+      parameter: "auth_token"
+      required: false

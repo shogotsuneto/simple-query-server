@@ -1,5 +1,6 @@
 # Integration test queries configuration
 # Uses the same queries as example but in isolated test environment
+# Also includes middleware-specific test queries
 
 queries:
   # Get a user by ID
@@ -59,4 +60,44 @@ queries:
       - name: max_id
         type: int
       - name: status
+        type: string
+
+  # Middleware-specific test queries
+  
+  # Query that uses only middleware parameter (user_id from header)
+  get_current_user:
+    sql: "SELECT id, name, email FROM users WHERE id = :user_id"
+    params: []
+    middleware_params:
+      - name: user_id
+        type: string
+        
+  # Query that mixes body and middleware parameters
+  get_user_by_tenant:
+    sql: "SELECT id, name, email FROM users WHERE id = :id AND tenant_id = :tenant_id"
+    params:
+      - name: id
+        type: int
+    middleware_params:
+      - name: tenant_id
+        type: string
+        
+  # Query for testing required middleware parameter
+  secure_user_data:
+    sql: "SELECT id, name, email, 'sensitive data' as data FROM users WHERE id = :user_id"
+    params: []
+    middleware_params:
+      - name: user_id
+        type: string
+      - name: auth_token
+        type: string
+        
+  # Query to test multiple middleware parameters
+  tenant_user_query:
+    sql: "SELECT 'tenant query' as type, :user_id as user_id, :tenant_id as tenant_id"
+    params: []
+    middleware_params:
+      - name: user_id
+        type: string
+      - name: tenant_id
         type: string
