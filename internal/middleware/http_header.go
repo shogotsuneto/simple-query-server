@@ -41,7 +41,7 @@ func (m *HTTPHeaderMiddleware) Wrap(next http.HandlerFunc) http.HandlerFunc {
 
 		// Get existing middleware parameters from context
 		params := GetMiddlewareParams(r)
-		
+
 		// Add the header value as a parameter
 		params[m.config.Parameter] = headerValue
 

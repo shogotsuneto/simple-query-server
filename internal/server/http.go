@@ -52,7 +52,7 @@ func (s *Server) Start(port string) error {
 	http.HandleFunc("/", s.handleRoot)
 	http.HandleFunc("/health", s.handleHealth)
 	http.HandleFunc("/queries", s.handleListQueries)
-	
+
 	// Wrap the query handler with middleware chain
 	queryHandler := s.middlewareChain.Wrap(s.handleQuery)
 	http.HandleFunc("/query/", queryHandler)
@@ -134,12 +134,12 @@ func (s *Server) handleListQueries(w http.ResponseWriter, r *http.Request) {
 			"sql":    query.SQL,
 			"params": query.Params, // Body parameters
 		}
-		
+
 		// Add middleware parameters if they exist
 		if len(query.MiddlewareParams) > 0 {
 			queryInfo["middleware_params"] = query.MiddlewareParams
 		}
-		
+
 		queries[name] = queryInfo
 	}
 

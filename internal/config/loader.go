@@ -22,7 +22,7 @@ type QueryParam struct {
 // Query represents a single query configuration
 type Query struct {
 	SQL              string       `yaml:"sql"`
-	Params           []QueryParam `yaml:"params"`           // Parameters from request body
+	Params           []QueryParam `yaml:"params"`            // Parameters from request body
 	MiddlewareParams []QueryParam `yaml:"middleware_params"` // Parameters injected by middleware
 }
 
