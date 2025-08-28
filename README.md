@@ -212,10 +212,8 @@ curl -X POST -H "X-Tenant-ID: acme" -H "Authorization: Bearer <jwt_token>" \
 For development and testing with JWT authentication, you can use the included [JWKS Mock API](https://github.com/shogotsuneto/jwks-mock-api):
 
 ```bash
-# Download and start JWKS Mock API (provides JWKS endpoint and token generation)
-curl -L -o jwks-mock-api https://github.com/shogotsuneto/jwks-mock-api/releases/download/v0.0.4/jwks-mock-api-v0.0.4-linux-amd64
-chmod +x jwks-mock-api
-./jwks-mock-api &
+# Start JWKS Mock API along with PostgreSQL (provides JWKS endpoint and token generation)
+docker compose up -d jwks-mock-api
 
 # Generate a test JWT token
 JWT_TOKEN=$(curl -s -X POST http://localhost:3000/generate-token \

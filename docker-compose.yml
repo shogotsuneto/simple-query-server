@@ -25,6 +25,20 @@ services:
       timeout: 5s
       retries: 5
 
+  # JWKS Mock API service for JWT authentication testing
+  jwks-mock-api:
+    image: ghcr.io/shogotsuneto/jwks-mock-api:v0.0.4
+    container_name: simple-query-server-jwks-mock
+    ports:
+      - "3000:3000"
+    networks:
+      - queryserver-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:3000/.well-known/jwks.json || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
 networks:
   queryserver-network:
     driver: bridge
