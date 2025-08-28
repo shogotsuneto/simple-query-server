@@ -1,0 +1,15 @@
+# Test configuration for required JWT authentication
+# This config makes JWT authentication mandatory for all requests
+
+middleware:
+  # JWKS verification middleware with required authentication
+  - type: "bearer-jwks"
+    config:
+      jwks_url: "http://localhost:3000/.well-known/jwks.json"  # JWKS mock API endpoint
+      required: true                                           # Required authentication
+      claims_mapping:                                          # Map JWT claims to SQL parameters
+        sub: "user_id"                                         # Map 'sub' claim to 'user_id' parameter
+        role: "role"                                           # Map 'role' claim to 'role' parameter
+        email: "email"                                         # Map 'email' claim to 'email' parameter
+      issuer: "http://localhost:3000"                         # Expected issuer
+      audience: "dev-api"                                      # Expected audience

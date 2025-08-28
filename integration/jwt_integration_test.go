@@ -21,11 +21,8 @@ const (
 
 var (
 	jwtServerCmd    *exec.Cmd
-	jwksAPICmd      *exec.Cmd
 	jwtServerCtx    context.Context
-	jwksAPICtx      context.Context
 	cancelJWTServer context.CancelFunc
-	cancelJWKSAPI   context.CancelFunc
 )
 
 // TestJWTIntegration runs comprehensive JWT/JWKS authentication tests
@@ -59,35 +56,22 @@ func TestJWTIntegration(t *testing.T) {
 func startJWTTestEnvironment() error {
 	fmt.Println("Starting JWT integration test environment...")
 
-	// Start PostgreSQL database using docker-compose
-	cmd := exec.Command("docker", "compose", "up", "-d", "postgres")
+	// Start PostgreSQL database and JWKS Mock API using docker-compose
+	cmd := exec.Command("docker", "compose", "up", "-d", "postgres", "jwks-mock-api")
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("failed to start PostgreSQL: %w", err)
+		return fmt.Errorf("failed to start PostgreSQL and JWKS Mock API: %w", err)
 	}
 
-	// Wait a bit for PostgreSQL to initialize
-	time.Sleep(10 * time.Second)
-
-	// Start JWKS Mock API
-	jwksAPICtx, cancelJWKSAPI = context.WithTimeout(context.Background(), jwtTestTimeout)
-	jwksAPICmd = exec.CommandContext(jwksAPICtx, "./test-tools/jwks-mock-api")
-	jwksAPICmd.Stdout = os.Stdout
-	jwksAPICmd.Stderr = os.Stderr
-
-	if err := jwksAPICmd.Start(); err != nil {
-		return fmt.Errorf("failed to start JWKS Mock API: %w", err)
-	}
-
-	// Wait for JWKS API to start
-	time.Sleep(3 * time.Second)
+	// Wait for services to initialize
+	time.Sleep(15 * time.Second)
 
 	// Start our server with JWT configuration
 	jwtServerCtx, cancelJWTServer = context.WithTimeout(context.Background(), jwtTestTimeout)
 	jwtServerCmd = exec.CommandContext(jwtServerCtx,
-		"./server",
-		"--db-config", "./example/database.yaml",
-		"--queries-config", "./integration/config/queries-with-jwt.yaml",
-		"--server-config", "./integration/config/server-with-jwt.yaml",
+		"../server",
+		"--db-config", "../example/database.yaml",
+		"--queries-config", "./config/queries-with-jwt.yaml",
+		"--server-config", "./config/server-with-jwt.yaml",
 		"--port", "8082")
 	jwtServerCmd.Stdout = os.Stdout
 	jwtServerCmd.Stderr = os.Stderr
@@ -110,15 +94,7 @@ func stopJWTTestEnvironment() {
 		jwtServerCmd.Wait()
 	}
 
-	if cancelJWKSAPI != nil {
-		cancelJWKSAPI()
-	}
-	if jwksAPICmd != nil && jwksAPICmd.Process != nil {
-		jwksAPICmd.Process.Kill()
-		jwksAPICmd.Wait()
-	}
-
-	// Stop PostgreSQL
+	// Stop all services
 	exec.Command("docker", "compose", "down").Run()
 }
 
@@ -422,9 +398,9 @@ func testRequiredAuth(t *testing.T) {
 	defer cancelServer()
 
 	serverCmd := exec.CommandContext(serverCtx,
-		"./server",
-		"--db-config", "./example/database.yaml",
-		"--queries-config", "./integration/config/queries-with-jwt.yaml",
+		"../server",
+		"--db-config", "../example/database.yaml",
+		"--queries-config", "./config/queries-with-jwt.yaml",
 		"--server-config", "./test-required-auth.yaml",
 		"--port", "8083")
 
