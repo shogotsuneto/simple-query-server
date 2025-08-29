@@ -7,9 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- JWT/JWKS authentication middleware with bearer token verification
+
 ## [v0.0.1] - 2025-08-28
 
 ### Added
+
 - Project initiated with core functionality
 - YAML configuration loading and validation
 - HTTP server with REST API endpoints

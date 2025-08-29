@@ -1,0 +1,58 @@
+# Integration test queries with JWT authentication
+# Adds queries that test JWT claim injection
+
+queries:
+  # Existing queries for backward compatibility
+  get_all_active_users:
+    sql: "SELECT id, name, email FROM users WHERE active = true"
+    params: []
+    middleware_params: []
+
+  get_user_by_id:
+    sql: "SELECT id, name, email FROM users WHERE id = :id"
+    params:
+      - name: "id"
+        type: "int"
+    middleware_params: []
+
+  search_users:
+    sql: "SELECT id, name, email FROM users WHERE name LIKE :name"
+    params:
+      - name: "name"
+        type: "string"
+    middleware_params: []
+
+  get_current_user:
+    sql: "SELECT id, name, email FROM users WHERE id = :user_id"
+    params: []
+    middleware_params:
+      - name: "user_id"
+        type: "int"
+
+  # New JWT-specific queries for testing
+  get_user_by_jwt_sub:
+    sql: "SELECT id, name, email FROM users WHERE id = CAST(:user_id AS INTEGER)"
+    params: []
+    middleware_params:
+      - name: "user_id"
+        type: "string"
+
+  get_user_profile_with_claims:
+    sql: "SELECT id, name, email, :role as provided_role, :email as provided_email FROM users WHERE id = CAST(:user_id AS INTEGER)"
+    params: []
+    middleware_params:
+      - name: "user_id"
+        type: "string"
+      - name: "role"
+        type: "string"
+      - name: "email"
+        type: "string"
+
+  search_with_auth:
+    sql: "SELECT id, name, email, :user_id as authenticated_user FROM users WHERE name LIKE :search_term"
+    params:
+      - name: "search_term"
+        type: "string"
+    middleware_params:
+      - name: "user_id"
+        type: "string"

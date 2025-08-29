@@ -1,0 +1,57 @@
+# Example queries configuration that uses JWT claims as parameters
+# Demonstrates how JWT claims can be used in SQL queries through middleware
+
+queries:
+  # Public query - no authentication required
+  get_public_data:
+    sql: "SELECT name, description FROM public_data WHERE active = true"
+    params: []
+    middleware_params: []
+
+  # User-specific query - uses JWT 'sub' claim as user_id parameter  
+  get_user_profile:
+    sql: "SELECT id, name, email, created_at FROM users WHERE id = :user_id"
+    params: []
+    middleware_params:
+      - name: "user_id"
+        type: "string"
+
+  # Query using multiple JWT claims
+  get_user_data_with_role:
+    sql: "SELECT * FROM user_data WHERE user_id = :user_id AND role = :user_role"
+    params: []
+    middleware_params:
+      - name: "user_id"
+        type: "string"
+      - name: "user_role"
+        type: "string"
+
+  # Query mixing JWT claims with request body parameters
+  search_user_content:
+    sql: "SELECT * FROM content WHERE user_id = :user_id AND category = :category AND created_at >= :since"
+    params:
+      - name: "category"
+        type: "string"
+      - name: "since"
+        type: "string"
+    middleware_params:
+      - name: "user_id"
+        type: "string"
+
+  # Admin query requiring specific role from JWT
+  admin_get_all_users:
+    sql: "SELECT id, name, email, role FROM users WHERE (:user_role = 'admin')"
+    params: []
+    middleware_params:
+      - name: "user_role"
+        type: "string"
+
+  # Multi-tenant query using both JWT claims and tenant header
+  get_tenant_user_data:
+    sql: "SELECT * FROM user_data WHERE user_id = :user_id AND tenant_id = :tenant_id"
+    params: []
+    middleware_params:
+      - name: "user_id"
+        type: "string"
+      - name: "tenant_id"
+        type: "string"

@@ -1,0 +1,22 @@
+# Example server configuration with JWKS verification middleware
+# This file demonstrates JWT authentication using JWKS endpoints
+
+middleware:
+  # JWKS verification middleware - verifies JWT tokens against JWKS endpoint
+  - type: "bearer-jwks"
+    config:
+      jwks_url: "http://localhost:3000/.well-known/jwks.json"  # JWKS endpoint URL
+      required: false                                          # Whether authentication is mandatory
+      claims_mapping:                                          # Map JWT claims to SQL parameters
+        sub: "user_id"                                         # Map 'sub' claim to 'user_id' parameter
+        role: "user_role"                                      # Map 'role' claim to 'user_role' parameter
+        email: "user_email"                                    # Map 'email' claim to 'user_email' parameter
+      issuer: "http://localhost:3000"                         # Expected issuer (optional)
+      audience: "dev-api"                                      # Expected audience (optional)
+  
+  # You can still combine with other middleware like HTTP headers
+  - type: "http-header"
+    config:
+      header: "X-Tenant-ID"
+      parameter: "tenant_id"
+      required: false

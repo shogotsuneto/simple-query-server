@@ -14,8 +14,7 @@ The `simple-query-server` allows you to define database queries in YAML configur
 - **PostgreSQL Support**: Full PostgreSQL database support with background connection management
 - **Background Connection Management**: Server starts successfully even when database is unavailable
 - **Automatic Reconnection**: Exponential backoff retry mechanism with health monitoring
-- **Middleware System**: Configurable middleware for request processing and parameter injection
-- **HTTP Header Middleware**: Extract HTTP header values and inject as SQL parameters
+- **Middleware System**: Configurable middleware for authentication and parameter injection
 - **Docker Integration**: Complete PostgreSQL setup with docker-compose
 - **Command Line Interface**: Flexible configuration via CLI flags
 
@@ -45,6 +44,7 @@ simple-query-server/
 │   ├── database.yaml         # Test database configuration
 │   └── queries.yaml          # Test queries configuration
 ├── docker-compose.yml        # PostgreSQL database setup
+├── MIDDLEWARE.md             # Middleware configuration and usage documentation
 ├── go.mod
 ├── go.sum
 └── README.md
@@ -133,50 +133,9 @@ queries:
         type: string
 ```
 
-### Server Configuration (`server.yaml`) - Optional
+### Middleware Configuration
 
-The server supports optional middleware configuration to process requests before query execution:
-
-```yaml
-middleware:
-  # HTTP header middleware - extracts values from HTTP headers and injects as SQL parameters
-  - type: "http-header"
-    config:
-      header: "X-User-ID"      # HTTP header name to extract
-      parameter: "user_id"     # SQL parameter name to inject
-      required: false          # Whether the header is required (default: false)
-  
-  # Multiple middleware can be chained
-  - type: "http-header"
-    config:
-      header: "X-Tenant-ID"
-      parameter: "tenant_id"
-      required: true           # Server returns 400 if header is missing
-```
-
-**Middleware Types:**
-- **`http-header`**: Extracts HTTP header values and makes them available as SQL parameters
-  - `header`: Name of the HTTP header to extract
-  - `parameter`: Name of the SQL parameter to inject the header value into
-  - `required`: Whether the header is required (if true, returns 400 Bad Request when missing)
-
-**How it works:**
-1. Middleware processes requests in the order configured
-2. Each middleware can inject additional parameters into the request
-3. Parameters are merged with JSON request body parameters
-4. Merged parameters are validated against query parameter definitions
-5. Query is executed with the combined parameter set
-
-**Example Usage:**
-```bash
-# Request with middleware-injected parameter
-curl -X POST -H "X-User-ID: 123" -H "Content-Type: application/json" \
-     -d '{}' http://localhost:8080/query/get_current_user
-
-# Request mixing JSON body params with middleware params  
-curl -X POST -H "X-User-ID: 123" -H "Content-Type: application/json" \
-     -d '{"status": "active"}' http://localhost:8080/query/get_user_data
-```
+The server supports optional middleware for request processing, authentication, and parameter injection. See [MIDDLEWARE.md](MIDDLEWARE.md) for detailed configuration and usage documentation.
 
 ## Usage
 
@@ -188,11 +147,10 @@ With PostgreSQL (recommended):
 # Start PostgreSQL database first (optional - server starts without database)
 docker compose up -d postgres
 
-# Start the server
-./server --db-config ./example/database.yaml --queries-config ./example/queries.yaml
-
-# Start the server with middleware configuration
-./server --db-config ./example/database.yaml --queries-config ./example/queries.yaml --server-config ./example/server.yaml
+# Start the server with optional middleware support
+./server --db-config ./example/database.yaml \
+         --queries-config ./example/queries.yaml \
+         --server-config ./example/server.yaml
 ```
 
 Or using make commands:
@@ -269,11 +227,6 @@ Content-Type: application/json
         http://localhost:8080/query/list_users
    ```
 
-3. **List available queries**:
-   ```bash
-   curl http://localhost:8080/queries
-   ```
-
 5. **Comprehensive API testing**:
    ```bash
    make api-test
@@ -346,8 +299,7 @@ See [integration/README.md](integration/README.md) for detailed integration test
 - ✅ **Background connection management with automatic retry**
 - ✅ **Health monitoring with meaningful database status reporting**
 - ✅ **SQL parameter binding with :param syntax**
-- ✅ **Middleware system with configurable request processing**
-- ✅ **HTTP header middleware for parameter injection**
+- ✅ **Middleware system with HTTP header and JWT/JWKS authentication**
 - ✅ **Docker Compose setup with sample database**
 - ✅ Command-line interface with flags
 - ✅ Error handling and logging
@@ -357,7 +309,7 @@ See [integration/README.md](integration/README.md) for detailed integration test
 - [ ] MySQL and SQLite database support
 - [ ] Database connection pooling configuration
 - [ ] Query result caching
-- [ ] Authentication and authorization middleware
+- [ ] OAuth 2.0 introspection endpoint support
 - [ ] Rate limiting middleware
 - [ ] Request logging middleware
 - [ ] Custom middleware plugin system
