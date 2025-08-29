@@ -20,10 +20,9 @@ import (
 
 // JWKSCache represents a cached JWKS with TTL
 type JWKSCache struct {
-	fetchedAt    time.Time
-	keysByID     map[string]*rsa.PublicKey
-	ttl          time.Duration
-	neverExpires bool // true when no Cache-Control header is present
+	fetchedAt time.Time
+	keysByID  map[string]*rsa.PublicKey
+	ttl       time.Duration
 }
 
 // JWKSResponse represents the JWKS response structure
@@ -53,19 +52,18 @@ type JWKSClient struct {
 	refetchMinInterval time.Duration // minimum interval between refetch attempts
 }
 
-// NewJWKSClient creates a new JWKS client with configurable cache TTL
-func NewJWKSClient(jwksURL string, cacheTTL time.Duration) *JWKSClient {
+// NewJWKSClient creates a new JWKS client with configurable fallback TTL
+func NewJWKSClient(jwksURL string, fallbackTTL time.Duration) *JWKSClient {
 	return &JWKSClient{
 		jwksURL: jwksURL,
 		cache: &JWKSCache{
-			keysByID:     make(map[string]*rsa.PublicKey),
-			ttl:          cacheTTL,
-			neverExpires: false,
+			keysByID: make(map[string]*rsa.PublicKey),
+			ttl:      fallbackTTL,
 		},
 		httpClient: &http.Client{
 			Timeout: 30 * time.Second,
 		},
-		fallbackTTL:        cacheTTL,
+		fallbackTTL:        fallbackTTL,
 		refetchMinInterval: 30 * time.Second, // prevent excessive refetch attempts
 	}
 }
@@ -121,7 +119,7 @@ func (c *JWKSClient) fetchJWKSWithCache() (*JWKSCache, error) {
 	}
 
 	// Parse Cache-Control header to determine TTL
-	cacheTTL, neverExpires := c.parseCacheControl(response.Header.Get("Cache-Control"))
+	cacheTTL := c.parseCacheControl(response.Header.Get("Cache-Control"))
 
 	// Parse JWKS format
 	var jwksResponse JWKSResponse
@@ -146,7 +144,6 @@ func (c *JWKSClient) fetchJWKSWithCache() (*JWKSCache, error) {
 	c.cache.fetchedAt = time.Now()
 	c.cache.keysByID = keysByID
 	c.cache.ttl = cacheTTL
-	c.cache.neverExpires = neverExpires
 
 	return c.cache, nil
 }
@@ -276,19 +273,15 @@ func (c *JWKSClient) isCacheValid() bool {
 		return false
 	}
 
-	if c.cache.neverExpires {
-		return true
-	}
-
 	valid := time.Since(c.cache.fetchedAt) < c.cache.ttl
 	return valid
 }
 
-// parseCacheControl parses the Cache-Control header and returns TTL and neverExpires flag
-func (c *JWKSClient) parseCacheControl(cacheControl string) (time.Duration, bool) {
+// parseCacheControl parses the Cache-Control header and returns TTL
+func (c *JWKSClient) parseCacheControl(cacheControl string) time.Duration {
 	if cacheControl == "" {
-		// No cache control header - default to never expires
-		return 0, true
+		// No cache control header - use fallback TTL
+		return c.fallbackTTL
 	}
 
 	// Parse Cache-Control header directives
@@ -300,18 +293,18 @@ func (c *JWKSClient) parseCacheControl(cacheControl string) (time.Duration, bool
 		if strings.HasPrefix(directive, "max-age=") {
 			maxAgeStr := strings.TrimPrefix(directive, "max-age=")
 			if maxAge, err := strconv.Atoi(maxAgeStr); err == nil && maxAge >= 0 {
-				return time.Duration(maxAge) * time.Second, false
+				return time.Duration(maxAge) * time.Second
 			}
 		}
 
 		// Check for no-cache or no-store (treat as immediate expiry)
 		if directive == "no-cache" || directive == "no-store" {
-			return 0, false
+			return 0
 		}
 	}
 
 	// If Cache-Control header exists but no max-age found, use fallback TTL
-	return c.fallbackTTL, false
+	return c.fallbackTTL
 }
 
 // shouldAttemptRefetch checks if we should attempt to refetch JWKS for unknown key
@@ -328,10 +321,9 @@ func (c *JWKSClient) refetchJWKS() (*JWKSCache, error) {
 	c.lastRefetchAttempt = time.Now()
 	c.refetchMutex.Unlock()
 
-	// Force cache invalidation by setting fetchedAt to zero and neverExpires to false
+	// Force cache invalidation by setting fetchedAt to zero
 	c.cacheMutex.Lock()
 	c.cache.fetchedAt = time.Time{}
-	c.cache.neverExpires = false
 	c.cacheMutex.Unlock()
 
 	return c.fetchJWKSWithCache()
