@@ -8,6 +8,7 @@ import (
 
 func TestBearerJWKSMiddleware_RequiredFalse(t *testing.T) {
 	// Test when required is false and no Authorization header is provided
+	// NOTE: This test does not call the JWKS client because no Authorization header is present
 	config := BearerJWKSConfig{
 		JWKSURL:       "http://localhost:3000/.well-known/jwks.json",
 		Required:      false,
@@ -42,6 +43,7 @@ func TestBearerJWKSMiddleware_RequiredFalse(t *testing.T) {
 
 func TestBearerJWKSMiddleware_RequiredTrue(t *testing.T) {
 	// Test when required is true and no Authorization header is provided
+	// NOTE: This test does not call the JWKS client because no Authorization header is present
 	config := BearerJWKSConfig{
 		JWKSURL:       "http://localhost:3000/.well-known/jwks.json",
 		Required:      true,
@@ -69,6 +71,7 @@ func TestBearerJWKSMiddleware_RequiredTrue(t *testing.T) {
 
 func TestBearerJWKSMiddleware_InvalidBearerFormat(t *testing.T) {
 	// Test with invalid Bearer token format
+	// NOTE: This test does not call the JWKS client because the Authorization header is not in Bearer format
 	config := BearerJWKSConfig{
 		JWKSURL:       "http://localhost:3000/.well-known/jwks.json",
 		Required:      true,
@@ -97,6 +100,7 @@ func TestBearerJWKSMiddleware_InvalidBearerFormat(t *testing.T) {
 
 func TestBearerJWKSMiddleware_EmptyBearerToken(t *testing.T) {
 	// Test with empty Bearer token
+	// NOTE: This test does not call the JWKS client because the Bearer token is empty
 	config := BearerJWKSConfig{
 		JWKSURL:       "http://localhost:3000/.well-known/jwks.json",
 		Required:      true,
@@ -209,6 +213,7 @@ func TestCreateBearerJWKSMiddleware_MissingFields(t *testing.T) {
 
 func TestBearerJWKSMiddleware_OptionalNotRequiredWithInvalidToken(t *testing.T) {
 	// Test when required is false and an invalid token is provided
+	// NOTE: This test does not call the JWKS client because the token format is invalid (fails JWT parsing before JWKS lookup)
 	config := BearerJWKSConfig{
 		JWKSURL:       "http://localhost:3000/.well-known/jwks.json",
 		Required:      false,
