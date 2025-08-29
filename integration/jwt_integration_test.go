@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"strings"
 	"testing"
 	"time"
 )
@@ -388,6 +389,14 @@ func testMixedParametersJWT(t *testing.T) {
 		row := rows[0].(map[string]interface{})
 		if row["authenticated_user"] != "1" {
 			t.Errorf("Expected authenticated_user '1' from JWT sub claim, got %v", row["authenticated_user"])
+		}
+		
+		// Verify that the name contains "Alice" as expected from search term
+		name, ok := row["name"].(string)
+		if !ok {
+			t.Errorf("Expected name field to be a string, got %v", row["name"])
+		} else if !strings.Contains(name, "Alice") {
+			t.Errorf("Expected name to contain 'Alice', got %v", name)
 		}
 	}
 }
