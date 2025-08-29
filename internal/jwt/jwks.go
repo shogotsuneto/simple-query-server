@@ -62,20 +62,6 @@ func NewJWKSClient(jwksURL string, cacheTTL time.Duration) *JWKSClient {
 
 // GetPublicKey retrieves the public key for the given key ID
 func (c *JWKSClient) GetPublicKey(kid string) (*rsa.PublicKey, error) {
-	// First, check if we have the specific key in cache and cache is still valid
-	c.cacheMutex.RLock()
-	if c.cache.keysByID != nil && len(c.cache.keysByID) > 0 {
-		if rsaPublicKey, exists := c.cache.keysByID[kid]; exists {
-			// Check if cache is still valid
-			if time.Since(c.cache.fetchedAt) < c.cache.ttl {
-				c.cacheMutex.RUnlock()
-				return rsaPublicKey, nil
-			}
-		}
-	}
-	c.cacheMutex.RUnlock()
-
-	// If key not in cache or cache expired, fetch fresh JWKS
 	cache, err := c.fetchJWKSWithCache()
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch JWKS: %w", err)
@@ -94,7 +80,7 @@ func (c *JWKSClient) fetchJWKSWithCache() (*JWKSCache, error) {
 	c.cacheMutex.Lock()
 	defer c.cacheMutex.Unlock()
 
-	// Double-check cache validity after acquiring write lock
+	// Check if cache is still valid
 	if time.Since(c.cache.fetchedAt) < c.cache.ttl && c.cache.keysByID != nil && len(c.cache.keysByID) > 0 {
 		return c.cache, nil
 	}
