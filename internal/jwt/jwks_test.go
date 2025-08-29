@@ -150,3 +150,176 @@ func TestJWKSClient_InvalidJSON(t *testing.T) {
 		t.Fatal("Expected error for invalid JSON")
 	}
 }
+
+func TestJWKSClient_CacheControlHeader(t *testing.T) {
+	mockJWKS := `{
+		"keys": [
+			{
+				"kty": "RSA",
+				"kid": "test-key-1",
+				"use": "sig",
+				"n": "0vx7agoebGcQSuuPiLJXZptN9nndrQmbXEps2aiAFbWhM78LhWx4cbbfAAtVT86zwu1RK7aPFFxuhDR1L6tSoc_BJECPebWKRXjBZCiFV4n3oknjhMstn64tZ_2W-5JsGY4Hc5n9yBXArwl93lqt7_RN5w6Cf0h4QyQ5v-65YGjQR0_FDW2QvzqY368QQMicAtaSqzs8KJZgnYb9c7d0zgdAZHzu6qMQvRL5hajrn1n91CbOpbISzIWzYr_W6UU9dwuW6TU0DjW0nQcaOLGOjQhGnOGKZ9CW7PDNE2J",
+				"e": "AQAB"
+			}
+		]
+	}`
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Cache-Control", "max-age=3600, must-revalidate")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(mockJWKS))
+	}))
+	defer server.Close()
+
+	client := NewJWKSClient(server.URL, 10*time.Minute)
+
+	// First request should fetch from server and use Cache-Control TTL
+	_, err := client.GetPublicKey("test-key-1")
+	if err != nil {
+		t.Fatalf("Expected no error, got %v", err)
+	}
+
+	// Check that TTL was updated from Cache-Control header
+	client.cacheMutex.RLock()
+	ttl := client.cache.ttl
+	client.cacheMutex.RUnlock()
+
+	expectedTTL := 3600 * time.Second
+	if ttl != expectedTTL {
+		t.Fatalf("Expected TTL to be %v, got %v", expectedTTL, ttl)
+	}
+}
+
+func TestJWKSClient_HealthStatus(t *testing.T) {
+	mockJWKS := `{
+		"keys": [
+			{
+				"kty": "RSA",
+				"kid": "test-key-1",
+				"use": "sig",
+				"n": "0vx7agoebGcQSuuPiLJXZptN9nndrQmbXEps2aiAFbWhM78LhWx4cbbfAAtVT86zwu1RK7aPFFxuhDR1L6tSoc_BJECPebWKRXjBZCiFV4n3oknjhMstn64tZ_2W-5JsGY4Hc5n9yBXArwl93lqt7_RN5w6Cf0h4QyQ5v-65YGjQR0_FDW2QvzqY368QQMicAtaSqzs8KJZgnYb9c7d0zgdAZHzu6qMQvRL5hajrn1n91CbOpbISzIWzYr_W6UU9dwuW6TU0DjW0nQcaOLGOjQhGnOGKZ9CW7PDNE2J",
+				"e": "AQAB"
+			}
+		]
+	}`
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(mockJWKS))
+	}))
+	defer server.Close()
+
+	client := NewJWKSClient(server.URL, 10*time.Minute)
+
+	// Initially healthy (never tried to fetch)
+	if !client.IsHealthy() {
+		t.Fatal("Expected client to be healthy initially")
+	}
+
+	// After successful fetch, should still be healthy
+	_, err := client.GetPublicKey("test-key-1")
+	if err != nil {
+		t.Fatalf("Expected no error, got %v", err)
+	}
+
+	if !client.IsHealthy() {
+		t.Fatal("Expected client to be healthy after successful fetch")
+	}
+
+	if client.GetLastError() != nil {
+		t.Fatal("Expected no error after successful fetch")
+	}
+}
+
+func TestJWKSClient_PreserveKeysOnError(t *testing.T) {
+	mockJWKS := `{
+		"keys": [
+			{
+				"kty": "RSA", 
+				"kid": "test-key-1",
+				"use": "sig",
+				"n": "0vx7agoebGcQSuuPiLJXZptN9nndrQmbXEps2aiAFbWhM78LhWx4cbbfAAtVT86zwu1RK7aPFFxuhDR1L6tSoc_BJECPebWKRXjBZCiFV4n3oknjhMstn64tZ_2W-5JsGY4Hc5n9yBXArwl93lqt7_RN5w6Cf0h4QyQ5v-65YGjQR0_FDW2QvzqY368QQMicAtaSqzs8KJZgnYb9c7d0zgdAZHzu6qMQvRL5hajrn1n91CbOpbISzIWzYr_W6UU9dwuW6TU0DjW0nQcaOLGOjQhGnOGKZ9CW7PDNE2J",
+				"e": "AQAB"
+			}
+		]
+	}`
+
+	requestCount := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestCount++
+		if requestCount == 1 {
+			// First request succeeds
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(mockJWKS))
+		} else {
+			// Subsequent requests fail
+			w.WriteHeader(http.StatusInternalServerError)
+		}
+	}))
+	defer server.Close()
+
+	client := NewJWKSClientWithRefreshInterval(server.URL, 100*time.Millisecond, 50*time.Millisecond)
+
+	// First fetch should succeed
+	key, err := client.GetPublicKey("test-key-1")
+	if err != nil {
+		t.Fatalf("Expected no error, got %v", err)
+	}
+	if key == nil {
+		t.Fatal("Expected key, got nil")
+	}
+
+	// Wait for cache to expire
+	time.Sleep(150 * time.Millisecond)
+
+	// Second fetch should preserve keys despite server error
+	key2, err := client.GetPublicKey("test-key-1")
+	if err != nil {
+		t.Fatalf("Expected cached key to be returned despite error, got %v", err)
+	}
+	if key2 == nil {
+		t.Fatal("Expected cached key, got nil")
+	}
+
+	// Health should reflect the error but keys should still be available
+	if client.IsHealthy() {
+		t.Fatal("Expected client to be unhealthy after fetch error")
+	}
+
+	if client.GetLastError() == nil {
+		t.Fatal("Expected error to be recorded")
+	}
+}
+
+func TestJWKSClient_HealthStatusAfterError(t *testing.T) {
+	// Create a server that fails
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer server.Close()
+
+	client := NewJWKSClient(server.URL, 10*time.Minute)
+
+	// Initially healthy (never tried to fetch)
+	if !client.IsHealthy() {
+		t.Fatal("Expected client to be healthy initially")
+	}
+
+	// Try to get a key, which should fail
+	_, err := client.GetPublicKey("test-key-1")
+	if err == nil {
+		t.Fatal("Expected error when server returns 500")
+	}
+
+	// After failed fetch, should be unhealthy
+	if client.IsHealthy() {
+		t.Fatal("Expected client to be unhealthy after fetch error")
+	}
+
+	if client.GetLastError() == nil {
+		t.Fatal("Expected error to be recorded")
+	}
+}

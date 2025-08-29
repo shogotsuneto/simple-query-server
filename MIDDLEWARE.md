@@ -21,6 +21,7 @@ middleware:
       jwks_url: "http://localhost:3000/.well-known/jwks.json"  # JWKS endpoint URL
       required: false                                          # Whether auth is mandatory
       cache_ttl: "10m"                                         # Cache JWKS keys for 10 minutes (optional, default: 10m)
+      min_refresh_interval: "5m"                               # Minimum interval between refresh attempts (optional, default: 5m)
       claims_mapping:                                          # Map JWT claims to SQL parameters
         sub: "user_id"                                         # Map 'sub' claim to 'user_id' parameter
         role: "user_role"                                      # Map 'role' claim to 'user_role' parameter
@@ -61,10 +62,18 @@ Verifies JWT tokens using JWKS endpoints and extracts claims as SQL parameters.
 **Configuration:**
 - `jwks_url`: URL to fetch JWKS from (e.g., `http://localhost:3000/.well-known/jwks.json`)
 - `required`: Whether authentication is mandatory (if true, returns 401 Unauthorized when missing/invalid)
-- `cache_ttl`: How long to cache JWKS keys (default: 10 minutes)
+- `cache_ttl`: How long to cache JWKS keys (default: 10 minutes, respects Cache-Control headers)
+- `min_refresh_interval`: Minimum interval between refresh attempts for unknown keys or background refresh (default: 5 minutes)
 - `claims_mapping`: Map JWT claims to SQL parameter names (e.g., `{"sub": "user_id", "role": "user_role"}`)
 - `issuer`: Expected JWT issuer for validation (optional)
 - `audience`: Expected JWT audience for validation (optional)
+
+**Advanced Caching Features:**
+- **Cache-Control Support**: Automatically uses TTL from `Cache-Control: max-age=N` headers in JWKS responses
+- **Background Refresh**: Starts refreshing JWKS at 80% of TTL to avoid cache expiration delays
+- **Rate Limiting**: Limits refresh attempts for unknown key IDs to prevent excessive requests
+- **Graceful Degradation**: Preserves existing keys when JWKS endpoint is temporarily unavailable
+- **Health Monitoring**: Reports JWKS health status in `/health` endpoint
 
 **Authentication Modes:**
 - **Optional Authentication**: Set `required: false` to allow requests without tokens
@@ -142,8 +151,46 @@ To use middleware, provide the server configuration file when starting the serve
 The JWT/JWKS middleware includes intelligent caching:
 
 - **JWKS Key Caching**: Public keys are cached with configurable TTL (default: 10 minutes)
+- **Cache-Control Respect**: Automatically uses TTL from JWKS endpoint Cache-Control headers
+- **Background Refresh**: Proactively refreshes keys before expiration (at 80% of TTL)
+- **Rate Limiting**: Prevents excessive requests when looking up unknown key IDs
+- **Graceful Degradation**: Preserves existing keys when JWKS endpoint is temporarily unavailable
 - **Thread-Safe**: Cache operations are protected with mutexes
-- **Automatic Invalidation**: Keys are refreshed when the cache expires
 - **Multiple Key Formats**: Supports both X.509 certificates and modulus/exponent formats
+
+## Health Monitoring
+
+When JWT/JWKS middleware is configured, the `/health` endpoint includes JWKS status:
+
+```json
+{
+  "status": "healthy",
+  "database": {
+    "connected": true
+  },
+  "jwks": {
+    "healthy": true
+  }
+}
+```
+
+If JWKS encounters errors:
+
+```json
+{
+  "status": "unhealthy", 
+  "database": {
+    "connected": true
+  },
+  "jwks": {
+    "healthy": false,
+    "errors": [
+      "failed to fetch JWKS from http://example.com/jwks: connection refused"
+    ]
+  }
+}
+```
+
+This enables Kubernetes readiness probes and monitoring systems to detect JWKS authentication issues.
 
 This reduces external JWKS requests and improves performance for high-traffic applications.

@@ -22,6 +22,7 @@ type Server struct {
 	executor        query.QueryExecutor
 	httpServer      *http.Server
 	done            chan struct{}
+	jwksClients     []*middleware.BearerJWKSMiddleware // Track JWKS middleware for health checks
 }
 
 // Response represents the JSON response structure
@@ -43,12 +44,21 @@ func New(dbConfig *config.DatabaseConfig, queriesConfig *config.QueriesConfig, s
 		return nil, fmt.Errorf("failed to create middleware chain: %w", err)
 	}
 
+	// Extract JWKS middleware instances for health checking
+	var jwksClients []*middleware.BearerJWKSMiddleware
+	for _, mw := range middlewareChain {
+		if jwksMw, ok := mw.(*middleware.BearerJWKSMiddleware); ok {
+			jwksClients = append(jwksClients, jwksMw)
+		}
+	}
+
 	return &Server{
 		dbConfig:        dbConfig,
 		queriesConfig:   queriesConfig,
 		middlewareChain: middlewareChain,
 		executor:        executor,
 		done:            make(chan struct{}),
+		jwksClients:     jwksClients,
 	}, nil
 }
 
@@ -140,10 +150,23 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	// Check database health
 	dbHealthy := s.executor.IsHealthy()
 
+	// Check JWKS health if configured
+	jwksHealthy := true
+	var jwksErrors []string
+	for _, jwksMw := range s.jwksClients {
+		client := jwksMw.GetJWKSClient()
+		if !client.IsHealthy() {
+			jwksHealthy = false
+			if err := client.GetLastError(); err != nil {
+				jwksErrors = append(jwksErrors, err.Error())
+			}
+		}
+	}
+
 	var status string
 	var statusCode int
 
-	if dbHealthy {
+	if dbHealthy && jwksHealthy {
 		status = "healthy"
 		statusCode = http.StatusOK
 	} else {
@@ -156,6 +179,17 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 		"database": map[string]bool{
 			"connected": dbHealthy,
 		},
+	}
+
+	// Add JWKS status if any JWKS middleware is configured
+	if len(s.jwksClients) > 0 {
+		jwksResponse := map[string]interface{}{
+			"healthy": jwksHealthy,
+		}
+		if len(jwksErrors) > 0 {
+			jwksResponse["errors"] = jwksErrors
+		}
+		response["jwks"] = jwksResponse
 	}
 
 	w.Header().Set("Content-Type", "application/json")

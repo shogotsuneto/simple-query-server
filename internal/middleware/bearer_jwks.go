@@ -11,12 +11,13 @@ import (
 
 // BearerJWKSConfig represents the configuration for bearer JWKS middleware
 type BearerJWKSConfig struct {
-	JWKSURL       string            `yaml:"jwks_url"`       // URL to fetch JWKS from
-	Required      bool              `yaml:"required"`       // Whether authentication is mandatory
-	ClaimsMapping map[string]string `yaml:"claims_mapping"` // Map JWT claims to SQL parameters
-	Issuer        string            `yaml:"issuer"`         // Expected issuer for validation (optional)
-	Audience      string            `yaml:"audience"`       // Expected audience for validation (optional)
-	CacheTTL      string            `yaml:"cache_ttl"`      // Cache TTL for JWKS (optional, default: 10m)
+	JWKSURL            string            `yaml:"jwks_url"`             // URL to fetch JWKS from
+	Required           bool              `yaml:"required"`             // Whether authentication is mandatory
+	ClaimsMapping      map[string]string `yaml:"claims_mapping"`       // Map JWT claims to SQL parameters
+	Issuer             string            `yaml:"issuer"`               // Expected issuer for validation (optional)
+	Audience           string            `yaml:"audience"`             // Expected audience for validation (optional)
+	CacheTTL           string            `yaml:"cache_ttl"`            // Cache TTL for JWKS (optional, default: 10m)
+	MinRefreshInterval string            `yaml:"min_refresh_interval"` // Minimum interval between refresh attempts (optional, default: 5m)
 }
 
 // BearerJWKSMiddleware verifies JWT tokens using JWKS and injects claims as SQL parameters
@@ -35,9 +36,17 @@ func NewBearerJWKSMiddleware(config BearerJWKSConfig) *BearerJWKSMiddleware {
 		}
 	}
 
+	// Parse min refresh interval, default to 5 minutes
+	minRefreshInterval := 5 * time.Minute
+	if config.MinRefreshInterval != "" {
+		if parsedInterval, err := time.ParseDuration(config.MinRefreshInterval); err == nil {
+			minRefreshInterval = parsedInterval
+		}
+	}
+
 	return &BearerJWKSMiddleware{
 		config:     config,
-		jwksClient: jwt.NewJWKSClient(config.JWKSURL, cacheTTL),
+		jwksClient: jwt.NewJWKSClientWithRefreshInterval(config.JWKSURL, cacheTTL, minRefreshInterval),
 	}
 }
 
@@ -112,4 +121,9 @@ func (m *BearerJWKSMiddleware) Wrap(next http.HandlerFunc) http.HandlerFunc {
 // Name returns the name of this middleware
 func (m *BearerJWKSMiddleware) Name() string {
 	return fmt.Sprintf("bearer-jwks(%s)", m.config.JWKSURL)
+}
+
+// GetJWKSClient returns the underlying JWKS client for health checking
+func (m *BearerJWKSMiddleware) GetJWKSClient() *jwt.JWKSClient {
+	return m.jwksClient
 }

@@ -10,17 +10,22 @@ import (
 	"io"
 	"math/big"
 	"net/http"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
 )
 
-// JWKSCache represents a cached JWKS with TTL
+// JWKSCache represents a cached JWKS with TTL and health status
 type JWKSCache struct {
-	fetchedAt time.Time
-	keysByID  map[string]*rsa.PublicKey
-	ttl       time.Duration
+	fetchedAt    time.Time
+	keysByID     map[string]*rsa.PublicKey
+	ttl          time.Duration
+	lastError    error
+	lastFetchOK  bool
+	refreshAfter time.Time // When to start background refresh attempts
 }
 
 // JWKSResponse represents the JWKS response structure
@@ -40,23 +45,33 @@ type JWK struct {
 
 // JWKSClient manages JWKS fetching and caching
 type JWKSClient struct {
-	jwksURL    string
-	cache      *JWKSCache
-	cacheMutex sync.RWMutex
-	httpClient *http.Client
+	jwksURL            string
+	cache              *JWKSCache
+	cacheMutex         sync.RWMutex
+	httpClient         *http.Client
+	minRefreshInterval time.Duration // Minimum interval between refresh attempts
+	lastRefreshAttempt time.Time
+	refreshMutex       sync.Mutex
 }
 
-// NewJWKSClient creates a new JWKS client with configurable cache TTL
+// NewJWKSClient creates a new JWKS client with configurable cache TTL and refresh interval
 func NewJWKSClient(jwksURL string, cacheTTL time.Duration) *JWKSClient {
+	return NewJWKSClientWithRefreshInterval(jwksURL, cacheTTL, 5*time.Minute)
+}
+
+// NewJWKSClientWithRefreshInterval creates a new JWKS client with configurable cache TTL and minimum refresh interval
+func NewJWKSClientWithRefreshInterval(jwksURL string, cacheTTL, minRefreshInterval time.Duration) *JWKSClient {
 	return &JWKSClient{
 		jwksURL: jwksURL,
 		cache: &JWKSCache{
-			keysByID: make(map[string]*rsa.PublicKey),
-			ttl:      cacheTTL,
+			keysByID:    make(map[string]*rsa.PublicKey),
+			ttl:         cacheTTL,
+			lastFetchOK: false,
 		},
 		httpClient: &http.Client{
 			Timeout: 30 * time.Second,
 		},
+		minRefreshInterval: minRefreshInterval,
 	}
 }
 
@@ -69,46 +84,162 @@ func (c *JWKSClient) GetPublicKey(kid string) (*rsa.PublicKey, error) {
 
 	rsaPublicKey, exists := cache.keysByID[kid]
 	if !exists {
-		return nil, fmt.Errorf("key not found for kid: %s", kid)
+		// Try refreshing cache in case this is a new key
+		cache, err = c.tryRefreshForUnknownKey(kid)
+		if err != nil {
+			return nil, fmt.Errorf("key not found for kid: %s", kid)
+		}
+
+		rsaPublicKey, exists = cache.keysByID[kid]
+		if !exists {
+			return nil, fmt.Errorf("key not found for kid: %s", kid)
+		}
 	}
 
 	return rsaPublicKey, nil
 }
 
+// IsHealthy returns whether the JWKS client is healthy
+func (c *JWKSClient) IsHealthy() bool {
+	c.cacheMutex.RLock()
+	defer c.cacheMutex.RUnlock()
+
+	// Healthy if we have keys and the last fetch was OK
+	// If we've never fetched, we're considered healthy
+	if c.cache.fetchedAt.IsZero() {
+		return true
+	}
+
+	return len(c.cache.keysByID) > 0 && c.cache.lastFetchOK
+}
+
+// GetLastError returns the last error encountered during JWKS fetching
+func (c *JWKSClient) GetLastError() error {
+	c.cacheMutex.RLock()
+	defer c.cacheMutex.RUnlock()
+	return c.cache.lastError
+}
+
 // fetchJWKSWithCache fetches JWKS with caching logic
 func (c *JWKSClient) fetchJWKSWithCache() (*JWKSCache, error) {
-	c.cacheMutex.Lock()
-	defer c.cacheMutex.Unlock()
-
+	c.cacheMutex.RLock()
 	// Check if cache is still valid
 	if time.Since(c.cache.fetchedAt) < c.cache.ttl && c.cache.keysByID != nil && len(c.cache.keysByID) > 0 {
-		return c.cache, nil
+		// Check if we should start background refresh
+		if time.Now().After(c.cache.refreshAfter) {
+			c.cacheMutex.RUnlock()
+			go c.backgroundRefresh()
+			c.cacheMutex.RLock()
+		}
+		cache := c.cache
+		c.cacheMutex.RUnlock()
+		return cache, nil
 	}
+
+	// Check if we have existing keys that we should preserve on error
+	hasExistingKeys := len(c.cache.keysByID) > 0
+	c.cacheMutex.RUnlock()
+
+	// Need to fetch fresh JWKS
+	return c.fetchJWKS(hasExistingKeys)
+}
+
+// tryRefreshForUnknownKey attempts to refresh JWKS when an unknown key is requested
+func (c *JWKSClient) tryRefreshForUnknownKey(kid string) (*JWKSCache, error) {
+	c.refreshMutex.Lock()
+	defer c.refreshMutex.Unlock()
+
+	// Check if enough time has passed since last refresh attempt
+	if time.Since(c.lastRefreshAttempt) < c.minRefreshInterval {
+		c.cacheMutex.RLock()
+		cache := c.cache
+		c.cacheMutex.RUnlock()
+		return cache, fmt.Errorf("rate limited")
+	}
+
+	c.lastRefreshAttempt = time.Now()
+	return c.fetchJWKS(true)
+}
+
+// backgroundRefresh performs background refresh
+func (c *JWKSClient) backgroundRefresh() {
+	c.refreshMutex.Lock()
+	defer c.refreshMutex.Unlock()
+
+	// Check if enough time has passed since last refresh attempt
+	if time.Since(c.lastRefreshAttempt) < c.minRefreshInterval {
+		return
+	}
+
+	c.lastRefreshAttempt = time.Now()
+	c.fetchJWKS(true)
+}
+
+// fetchJWKS performs the actual JWKS fetch
+func (c *JWKSClient) fetchJWKS(preserveOnError bool) (*JWKSCache, error) {
+	c.cacheMutex.Lock()
+	defer c.cacheMutex.Unlock()
 
 	// Fetch fresh JWKS
 	response, err := c.httpClient.Get(c.jwksURL)
 	if err != nil {
-		return nil, fmt.Errorf("failed to fetch JWKS from %s: %w", c.jwksURL, err)
+		c.cache.lastError = fmt.Errorf("failed to fetch JWKS from %s: %w", c.jwksURL, err)
+		c.cache.lastFetchOK = false
+		c.cache.fetchedAt = time.Now() // Record that we attempted to fetch
+		if preserveOnError && len(c.cache.keysByID) > 0 {
+			return c.cache, nil // Return cached keys despite error
+		}
+		return nil, c.cache.lastError
 	}
 	defer response.Body.Close()
 
 	if response.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("JWKS endpoint returned status: %d", response.StatusCode)
+		c.cache.lastError = fmt.Errorf("JWKS endpoint returned status: %d", response.StatusCode)
+		c.cache.lastFetchOK = false
+		c.cache.fetchedAt = time.Now() // Record that we attempted to fetch
+		if preserveOnError && len(c.cache.keysByID) > 0 {
+			return c.cache, nil // Return cached keys despite error
+		}
+		return nil, c.cache.lastError
 	}
 
 	responseBody, err := io.ReadAll(response.Body)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read JWKS response: %w", err)
+		c.cache.lastError = fmt.Errorf("failed to read JWKS response: %w", err)
+		c.cache.lastFetchOK = false
+		c.cache.fetchedAt = time.Now() // Record that we attempted to fetch
+		if preserveOnError && len(c.cache.keysByID) > 0 {
+			return c.cache, nil // Return cached keys despite error
+		}
+		return nil, c.cache.lastError
+	}
+
+	// Parse Cache-Control header for TTL
+	ttlFromHeader := c.parseCacheControlMaxAge(response.Header.Get("Cache-Control"))
+	if ttlFromHeader > 0 {
+		c.cache.ttl = ttlFromHeader
 	}
 
 	// Parse JWKS format
 	var jwksResponse JWKSResponse
 	if err := json.Unmarshal(responseBody, &jwksResponse); err != nil {
-		return nil, fmt.Errorf("failed to parse JWKS response: %w", err)
+		c.cache.lastError = fmt.Errorf("failed to parse JWKS response: %w", err)
+		c.cache.lastFetchOK = false
+		if preserveOnError && len(c.cache.keysByID) > 0 {
+			return c.cache, nil // Return cached keys despite error
+		}
+		return nil, c.cache.lastError
 	}
 
-	// Convert JWKS to key map
-	keysByID := make(map[string]*rsa.PublicKey)
+	// Convert JWKS to key map, preserving existing keys
+	newKeysByID := make(map[string]*rsa.PublicKey)
+	if preserveOnError {
+		// Copy existing keys
+		for kid, key := range c.cache.keysByID {
+			newKeysByID[kid] = key
+		}
+	}
+
 	for _, key := range jwksResponse.Keys {
 		if key.KeyType == "RSA" {
 			rsaKey, err := c.parseRSAKey(key)
@@ -116,15 +247,41 @@ func (c *JWKSClient) fetchJWKSWithCache() (*JWKSCache, error) {
 				// Log warning but continue with other keys
 				continue
 			}
-			keysByID[key.KeyID] = rsaKey
+			newKeysByID[key.KeyID] = rsaKey
 		}
 	}
 
 	// Update cache
-	c.cache.fetchedAt = time.Now()
-	c.cache.keysByID = keysByID
+	now := time.Now()
+	c.cache.fetchedAt = now
+	c.cache.keysByID = newKeysByID
+	c.cache.lastError = nil
+	c.cache.lastFetchOK = true
+
+	// Set refresh time to 80% of TTL to start background refresh early
+	refreshDelay := time.Duration(float64(c.cache.ttl) * 0.8)
+	c.cache.refreshAfter = now.Add(refreshDelay)
 
 	return c.cache, nil
+}
+
+// parseCacheControlMaxAge parses max-age from Cache-Control header
+func (c *JWKSClient) parseCacheControlMaxAge(cacheControl string) time.Duration {
+	if cacheControl == "" {
+		return 0
+	}
+
+	directives := strings.Split(cacheControl, ",")
+	for _, directive := range directives {
+		directive = strings.TrimSpace(directive)
+		if strings.HasPrefix(directive, "max-age=") {
+			maxAgeStr := strings.TrimPrefix(directive, "max-age=")
+			if maxAge, err := strconv.Atoi(maxAgeStr); err == nil && maxAge > 0 {
+				return time.Duration(maxAge) * time.Second
+			}
+		}
+	}
+	return 0
 }
 
 // parseRSAKey parses an RSA key from JWK format
