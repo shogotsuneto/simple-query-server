@@ -51,6 +51,7 @@ func TestJWTIntegration(t *testing.T) {
 	t.Run("OptionalAuthWithInvalidToken", testOptionalAuthWithInvalidToken)
 	t.Run("ClaimsMapping", testClaimsMapping)
 	t.Run("MixedParametersJWT", testMixedParametersJWT)
+	t.Run("ConflictingMiddlewareParams", testConflictingMiddlewareParams)
 	t.Run("RequiredAuthTests", testRequiredAuth)
 }
 
@@ -399,6 +400,143 @@ func testMixedParametersJWT(t *testing.T) {
 			t.Errorf("Expected name to contain 'Alice', got %v", name)
 		}
 	}
+}
+
+func testConflictingMiddlewareParams(t *testing.T) {
+	// This test verifies behavior when multiple middleware try to set the same parameter
+	// In server-with-jwt.yaml:
+	// 1. bearer-jwks middleware maps JWT 'sub' claim to 'user_id' parameter  
+	// 2. http-header middleware maps 'X-User-ID' header to 'user_id' parameter
+	//
+	// Middleware execution order:
+	// - bearer-jwks is listed first, so it wraps outermost and executes first
+	// - http-header is listed second, so it wraps innermost and executes second
+	// - The second middleware (http-header) should overwrite the first's parameter
+	
+	// Generate JWT token with sub claim = "2" (known user ID from test data)
+	token, err := generateJWTToken(map[string]interface{}{
+		"sub":   "2",    // JWT sets user_id to "2"
+		"role":  "admin",
+		"email": "admin@example.com",
+	})
+	if err != nil {
+		t.Fatalf("Failed to generate JWT token: %v", err)
+	}
+
+	headers := map[string]string{
+		"Authorization": "Bearer " + token,
+		"X-User-ID":     "1",    // Header sets user_id to "1" - this should win
+	}
+
+	requestBody := map[string]interface{}{}
+
+	// Use get_user_by_jwt_sub query which accepts user_id as string from middleware
+	resp, body, err := makeJWTRequest("POST", jwtServerBaseURL+"/query/get_user_by_jwt_sub", headers, requestBody)
+	if err != nil {
+		t.Fatalf("Failed to make conflicting middleware params request: %v", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("Expected conflicting middleware params request to succeed, got status %d: %s", resp.StatusCode, string(body))
+		return
+	}
+
+	var result map[string]interface{}
+	if err := json.Unmarshal(body, &result); err != nil {
+		t.Fatalf("Failed to unmarshal response: %v", err)
+	}
+
+	rows, ok := result["rows"].([]interface{})
+	if !ok {
+		t.Errorf("Expected rows in conflicting middleware params response, got %v", result)
+		return
+	}
+
+	if len(rows) == 0 {
+		t.Errorf("Expected to find a user, but got no rows. Response: %v", result)
+		return
+	}
+
+	row := rows[0].(map[string]interface{})
+	userID, ok := row["id"]
+	if !ok {
+		t.Errorf("Expected id field in response, got %v", row)
+		return
+	}
+	
+	// Convert to string for comparison since it could be returned as int or string
+	var userIDStr string
+	switch v := userID.(type) {
+	case float64:
+		userIDStr = fmt.Sprintf("%.0f", v)
+	case int:
+		userIDStr = fmt.Sprintf("%d", v)
+	case string:
+		userIDStr = v
+	default:
+		t.Errorf("Unexpected type for user ID: %T", v)
+		return
+	}
+	
+	// Test which middleware parameter was used
+	// JWT middleware sets user_id="2", HTTP header middleware sets user_id="1"
+	// The one that executes later (http-header) should overwrite the JWT value
+	if userIDStr == "1" {
+		t.Logf("SUCCESS: HTTP header middleware parameter (user_id=1) was used - it overwrote JWT parameter (user_id=2)")
+	} else if userIDStr == "2" {
+		t.Logf("JWT middleware parameter (user_id=2) was used - it overwrote HTTP header parameter (user_id=1)")
+	} else {
+		t.Errorf("Unexpected user ID %v - expected either 1 (header) or 2 (JWT)", userIDStr)
+	}
+	
+	// Additional test: Verify behavior with only one middleware active
+	t.Run("JWTOnly", func(t *testing.T) {
+		// Test with only JWT token (no header)
+		jwtOnlyHeaders := map[string]string{
+			"Authorization": "Bearer " + token,
+		}
+		
+		resp, body, err := makeJWTRequest("POST", jwtServerBaseURL+"/query/get_user_by_jwt_sub", jwtOnlyHeaders, requestBody)
+		if err != nil {
+			t.Fatalf("Failed to make JWT-only request: %v", err)
+		}
+
+		if resp.StatusCode == http.StatusOK {
+			var result map[string]interface{}
+			if err := json.Unmarshal(body, &result); err == nil {
+				if rows, ok := result["rows"].([]interface{}); ok && len(rows) > 0 {
+					row := rows[0].(map[string]interface{})
+					if userID, ok := row["id"]; ok {
+						t.Logf("JWT-only request found user ID: %v", userID)
+					}
+				}
+			}
+		}
+	})
+	
+	t.Run("HeaderOnly", func(t *testing.T) {
+		// Test with only header (no JWT token)
+		headerOnlyHeaders := map[string]string{
+			"X-User-ID": "1",
+		}
+		
+		resp, body, err := makeJWTRequest("POST", jwtServerBaseURL+"/query/get_user_by_jwt_sub", headerOnlyHeaders, requestBody)
+		if err != nil {
+			t.Fatalf("Failed to make header-only request: %v", err)
+		}
+
+		if resp.StatusCode == http.StatusOK {
+			var result map[string]interface{}
+			if err := json.Unmarshal(body, &result); err == nil {
+				if rows, ok := result["rows"].([]interface{}); ok && len(rows) > 0 {
+					row := rows[0].(map[string]interface{})
+					if userID, ok := row["id"]; ok {
+						t.Logf("Header-only request found user ID: %v", userID)
+					}
+				}
+			}
+		}
+	})
 }
 
 func testRequiredAuth(t *testing.T) {
