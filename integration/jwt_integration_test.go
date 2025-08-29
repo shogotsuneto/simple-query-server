@@ -484,7 +484,7 @@ func testConflictingMiddlewareParams(t *testing.T) {
 	if userIDStr == "1" {
 		t.Logf("SUCCESS: HTTP header middleware parameter (user_id=1) was used - it overwrote JWT parameter (user_id=2)")
 	} else if userIDStr == "2" {
-		t.Logf("JWT middleware parameter (user_id=2) was used - it overwrote HTTP header parameter (user_id=1)")
+		t.Errorf("JWT middleware parameter (user_id=2) was used - it should NOT overwrite HTTP header parameter (user_id=1)")
 	} else {
 		t.Errorf("Unexpected user ID %v - expected either 1 (header) or 2 (JWT)", userIDStr)
 	}
