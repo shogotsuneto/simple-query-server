@@ -16,7 +16,7 @@ type BearerJWKSConfig struct {
 	ClaimsMapping map[string]string `yaml:"claims_mapping"` // Map JWT claims to SQL parameters
 	Issuer        string            `yaml:"issuer"`         // Expected issuer for validation (optional)
 	Audience      string            `yaml:"audience"`       // Expected audience for validation (optional)
-	CacheTTL      string            `yaml:"cache_ttl"`      // Cache TTL for JWKS (optional, default: 10m)
+	FallbackTTL   string            `yaml:"fallback_ttl"`   // Fallback TTL for JWKS when no Cache-Control header (optional, default: 10m)
 }
 
 // BearerJWKSMiddleware verifies JWT tokens using JWKS and injects claims as SQL parameters
@@ -27,17 +27,17 @@ type BearerJWKSMiddleware struct {
 
 // NewBearerJWKSMiddleware creates a new bearer JWKS middleware
 func NewBearerJWKSMiddleware(config BearerJWKSConfig) *BearerJWKSMiddleware {
-	// Parse cache TTL, default to 10 minutes
-	cacheTTL := 10 * time.Minute
-	if config.CacheTTL != "" {
-		if parsedTTL, err := time.ParseDuration(config.CacheTTL); err == nil {
-			cacheTTL = parsedTTL
+	// Parse fallback TTL, default to 10 minutes
+	fallbackTTL := 10 * time.Minute
+	if config.FallbackTTL != "" {
+		if parsedTTL, err := time.ParseDuration(config.FallbackTTL); err == nil {
+			fallbackTTL = parsedTTL
 		}
 	}
 
 	return &BearerJWKSMiddleware{
 		config:     config,
-		jwksClient: jwt.NewJWKSClient(config.JWKSURL, cacheTTL),
+		jwksClient: jwt.NewJWKSClient(config.JWKSURL, fallbackTTL),
 	}
 }
 
