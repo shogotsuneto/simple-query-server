@@ -48,7 +48,6 @@ type JWKSClient struct {
 	httpClient         *http.Client
 	fallbackTTL        time.Duration
 	lastRefetchAttempt time.Time
-	refetchMutex       sync.Mutex
 	refetchMinInterval time.Duration // minimum interval between refetch attempts
 }
 
