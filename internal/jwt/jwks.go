@@ -307,20 +307,21 @@ func (c *JWKSClient) parseCacheControl(cacheControl string) time.Duration {
 	return c.fallbackTTL
 }
 
-// shouldAttemptRefetch checks if we should attempt to refetch JWKS for unknown key
+// shouldAttemptRefetch atomically checks if we should attempt to refetch JWKS for unknown key
+// and updates lastRefetchAttempt if true to prevent multiple simultaneous refetches
 func (c *JWKSClient) shouldAttemptRefetch() bool {
 	c.refetchMutex.Lock()
 	defer c.refetchMutex.Unlock()
 
-	return time.Since(c.lastRefetchAttempt) >= c.refetchMinInterval
+	if time.Since(c.lastRefetchAttempt) >= c.refetchMinInterval {
+		c.lastRefetchAttempt = time.Now()
+		return true
+	}
+	return false
 }
 
 // refetchJWKS forces a refetch of JWKS (used when key not found)
 func (c *JWKSClient) refetchJWKS() (*JWKSCache, error) {
-	c.refetchMutex.Lock()
-	c.lastRefetchAttempt = time.Now()
-	c.refetchMutex.Unlock()
-
 	// Force cache invalidation by setting fetchedAt to zero
 	c.cacheMutex.Lock()
 	c.cache.fetchedAt = time.Time{}
