@@ -62,7 +62,7 @@ type JWKSClient struct {
 // NewJWKSClient creates a new JWKS client with configurable fallback TTL
 func NewJWKSClient(jwksURL string, fallbackTTL time.Duration) *JWKSClient {
 	ctx, cancel := context.WithCancel(context.Background())
-	
+
 	client := &JWKSClient{
 		jwksURL: jwksURL,
 		cache: &JWKSCache{

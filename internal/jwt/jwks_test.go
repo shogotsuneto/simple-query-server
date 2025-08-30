@@ -78,7 +78,7 @@ func TestJWKSClient_BackgroundRefresh(t *testing.T) {
 
 	// Wait for initial fetch
 	client.WaitForInitialization()
-	
+
 	// Should have made initial request
 	if requestCount != 1 {
 		t.Fatalf("Expected 1 initial request, got %d", requestCount)
@@ -91,7 +91,7 @@ func TestJWKSClient_BackgroundRefresh(t *testing.T) {
 			t.Fatalf("Expected no error, got %v", err)
 		}
 	}
-	
+
 	// Should still be 1 request (no request-triggered refetch)
 	if requestCount != 1 {
 		t.Fatalf("Expected 1 request after multiple gets, got %d", requestCount)
@@ -99,7 +99,7 @@ func TestJWKSClient_BackgroundRefresh(t *testing.T) {
 
 	// Wait for background refresh (at 80% of 1 second = 800ms)
 	time.Sleep(900 * time.Millisecond)
-	
+
 	// Should have refreshed in background
 	if requestCount < 2 {
 		t.Fatalf("Expected at least 2 requests after background refresh, got %d", requestCount)
