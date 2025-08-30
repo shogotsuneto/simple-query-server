@@ -59,9 +59,8 @@ type JWKSClient struct {
 	initialized chan struct{} // signals when initial fetch is complete
 
 	// Exponential backoff for failed refresh attempts
-	failureCount    int
-	lastRefreshTime time.Time
-	backoffMutex    sync.RWMutex
+	failureCount int
+	backoffMutex sync.RWMutex
 }
 
 // NewJWKSClient creates a new JWKS client with configurable fallback TTL
@@ -77,13 +76,12 @@ func NewJWKSClient(jwksURL string, fallbackTTL time.Duration) *JWKSClient {
 		httpClient: &http.Client{
 			Timeout: 30 * time.Second,
 		},
-		fallbackTTL:     fallbackTTL,
-		ctx:             ctx,
-		cancel:          cancel,
-		refreshDone:     make(chan struct{}),
-		initialized:     make(chan struct{}),
-		failureCount:    0,
-		lastRefreshTime: time.Now(),
+		fallbackTTL:  fallbackTTL,
+		ctx:          ctx,
+		cancel:       cancel,
+		refreshDone:  make(chan struct{}),
+		initialized:  make(chan struct{}),
+		failureCount: 0,
 	}
 
 	// Start background refresh goroutine
@@ -183,10 +181,6 @@ func (c *JWKSClient) calculateBackoffDuration() time.Duration {
 
 // performRefresh fetches JWKS and updates cache, handling errors gracefully
 func (c *JWKSClient) performRefresh() {
-	c.backoffMutex.Lock()
-	c.lastRefreshTime = time.Now()
-	c.backoffMutex.Unlock()
-
 	newCache, err := c.fetchJWKSFromServer()
 	if err != nil {
 		// Log error but don't block - this allows server to start without JWKS being available
