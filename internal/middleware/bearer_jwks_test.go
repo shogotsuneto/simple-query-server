@@ -247,3 +247,92 @@ func TestBearerJWKSMiddleware_OptionalNotRequiredWithInvalidToken(t *testing.T) 
 		t.Errorf("Expected no parameters when invalid token provided to optional auth, got %v", capturedParams)
 	}
 }
+
+// TestBearerJWKSMiddleware_HealthCheck tests the health check functionality
+func TestBearerJWKSMiddleware_HealthCheck(t *testing.T) {
+	t.Run("HealthCheckEnabledByDefault", func(t *testing.T) {
+		config := BearerJWKSConfig{
+			JWKSURL:       "http://localhost:3000/.well-known/jwks.json",
+			Required:      false,
+			ClaimsMapping: map[string]string{"sub": "user_id"},
+			// EnableHealthCheck not set, should default to true
+		}
+		middleware := NewBearerJWKSMiddleware(config)
+
+		if !middleware.HealthCheckEnabled() {
+			t.Error("Expected health check to be enabled by default")
+		}
+
+		// Health check should work (though will be false due to no server)
+		// We're just testing that the method exists and can be called
+		_ = middleware.IsHealthy()
+	})
+
+	t.Run("HealthCheckExplicitlyEnabled", func(t *testing.T) {
+		enabled := true
+		config := BearerJWKSConfig{
+			JWKSURL:           "http://localhost:3000/.well-known/jwks.json",
+			Required:          false,
+			ClaimsMapping:     map[string]string{"sub": "user_id"},
+			EnableHealthCheck: &enabled,
+		}
+		middleware := NewBearerJWKSMiddleware(config)
+
+		if !middleware.HealthCheckEnabled() {
+			t.Error("Expected health check to be enabled when explicitly set to true")
+		}
+	})
+
+	t.Run("HealthCheckExplicitlyDisabled", func(t *testing.T) {
+		disabled := false
+		config := BearerJWKSConfig{
+			JWKSURL:           "http://localhost:3000/.well-known/jwks.json",
+			Required:          false,
+			ClaimsMapping:     map[string]string{"sub": "user_id"},
+			EnableHealthCheck: &disabled,
+		}
+		middleware := NewBearerJWKSMiddleware(config)
+
+		if middleware.HealthCheckEnabled() {
+			t.Error("Expected health check to be disabled when explicitly set to false")
+		}
+	})
+
+	t.Run("HealthCheckWithValidJWKS", func(t *testing.T) {
+		// Mock JWKS server
+		mockJWKS := `{
+			"keys": [
+				{
+					"kty": "RSA",
+					"kid": "test-key-1",
+					"use": "sig",
+					"n": "0vx7agoebGcQSuuPiLJXZptN9nndrQmbXEps2aiAFbWhM78LhWx4cbbfAAtVT86zwu1RK7aPFFxuhDR1L6tSoc_BJECPebWKRXjBZCiFV4n3oknjhMstn64tZ_2W-5JsGY4Hc5n9yBXArwl93lqt7_RN5w6Cf0h4QyQ5v-65YGjQR0_FDW2QvzqY368QQMicAtaSqzs8KJZgnYb9c7d0zgdAZHzu6qMQvRL5hajrn1n91CbOpbISzIWzYr_W6UU9dwuW6TU0DjW0nQcaOLGOjQhGnOGKZ9CW7PDNE2J",
+					"e": "AQAB"
+				}
+			]
+		}`
+
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			w.Header().Set("Cache-Control", "max-age=3600") // 1 hour TTL
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(mockJWKS))
+		}))
+		defer server.Close()
+
+		config := BearerJWKSConfig{
+			JWKSURL:       server.URL,
+			Required:      false,
+			ClaimsMapping: map[string]string{"sub": "user_id"},
+		}
+		middleware := NewBearerJWKSMiddleware(config)
+		defer middleware.Close()
+
+		// Wait for initialization to complete
+		middleware.jwksClient.WaitForInitialization()
+
+		if !middleware.IsHealthy() {
+			t.Error("Expected middleware to be healthy with valid JWKS")
+		}
+	})
+}

@@ -11,18 +11,20 @@ import (
 
 // BearerJWKSConfig represents the configuration for bearer JWKS middleware
 type BearerJWKSConfig struct {
-	JWKSURL       string            `yaml:"jwks_url"`       // URL to fetch JWKS from
-	Required      bool              `yaml:"required"`       // Whether authentication is mandatory
-	ClaimsMapping map[string]string `yaml:"claims_mapping"` // Map JWT claims to SQL parameters
-	Issuer        string            `yaml:"issuer"`         // Expected issuer for validation (optional)
-	Audience      string            `yaml:"audience"`       // Expected audience for validation (optional)
-	FallbackTTL   string            `yaml:"fallback_ttl"`   // Fallback TTL for JWKS when no Cache-Control header (optional, default: 10m)
+	JWKSURL           string            `yaml:"jwks_url"`            // URL to fetch JWKS from
+	Required          bool              `yaml:"required"`            // Whether authentication is mandatory
+	ClaimsMapping     map[string]string `yaml:"claims_mapping"`      // Map JWT claims to SQL parameters
+	Issuer            string            `yaml:"issuer"`              // Expected issuer for validation (optional)
+	Audience          string            `yaml:"audience"`            // Expected audience for validation (optional)
+	FallbackTTL       string            `yaml:"fallback_ttl"`        // Fallback TTL for JWKS when no Cache-Control header (optional, default: 10m)
+	EnableHealthCheck *bool             `yaml:"enable_health_check"` // Whether to include JWKS health in server health checks (optional, default: true)
 }
 
 // BearerJWKSMiddleware verifies JWT tokens using JWKS and injects claims as SQL parameters
 type BearerJWKSMiddleware struct {
-	config     BearerJWKSConfig
-	jwksClient *jwt.JWKSClient
+	config            BearerJWKSConfig
+	jwksClient        *jwt.JWKSClient
+	enableHealthCheck bool // resolved value for health check (defaults to true)
 }
 
 // NewBearerJWKSMiddleware creates a new bearer JWKS middleware
@@ -35,9 +37,16 @@ func NewBearerJWKSMiddleware(config BearerJWKSConfig) *BearerJWKSMiddleware {
 		}
 	}
 
+	// Default EnableHealthCheck to true if not explicitly set
+	enableHealthCheck := true
+	if config.EnableHealthCheck != nil {
+		enableHealthCheck = *config.EnableHealthCheck
+	}
+
 	return &BearerJWKSMiddleware{
-		config:     config,
-		jwksClient: jwt.NewJWKSClient(config.JWKSURL, fallbackTTL),
+		config:            config,
+		jwksClient:        jwt.NewJWKSClient(config.JWKSURL, fallbackTTL),
+		enableHealthCheck: enableHealthCheck,
 	}
 }
 
@@ -120,4 +129,17 @@ func (m *BearerJWKSMiddleware) Close() error {
 		m.jwksClient.Close()
 	}
 	return nil
+}
+
+// IsHealthy returns true if the JWKS client is healthy (has valid, unexpired keys)
+func (m *BearerJWKSMiddleware) IsHealthy() bool {
+	if m.jwksClient == nil {
+		return false
+	}
+	return m.jwksClient.IsHealthy()
+}
+
+// HealthCheckEnabled returns true if health checking is enabled for this middleware
+func (m *BearerJWKSMiddleware) HealthCheckEnabled() bool {
+	return m.enableHealthCheck
 }

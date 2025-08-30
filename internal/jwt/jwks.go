@@ -94,6 +94,38 @@ func (c *JWKSClient) WaitForInitialization() {
 	<-c.initialized
 }
 
+// IsHealthy returns true if the JWKS client has valid, unexpired keys and no recent failures
+func (c *JWKSClient) IsHealthy() bool {
+	// Wait for initial fetch to complete
+	select {
+	case <-c.initialized:
+		// Initial fetch completed, continue with health check
+	default:
+		// Initial fetch not yet completed
+		return false
+	}
+
+	c.cacheMutex.RLock()
+	defer c.cacheMutex.RUnlock()
+
+	// Check if we have any keys
+	if len(c.cache.keysByID) == 0 {
+		return false
+	}
+
+	// Check if there are recent failures
+	if c.failureCount > 0 {
+		return false
+	}
+
+	// Check if cache is expired
+	if time.Since(c.cache.fetchedAt) >= c.cache.ttl {
+		return false
+	}
+
+	return true
+}
+
 // Close stops the background refresh goroutine and cleans up resources
 func (c *JWKSClient) Close() {
 	c.cancel()

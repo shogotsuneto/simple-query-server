@@ -145,10 +145,28 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	// Check database health
 	dbHealthy := s.executor.IsHealthy()
 
+	// Check middleware health
+	middlewareHealthy := true
+	middlewareStatuses := make(map[string]interface{})
+
+	for _, mw := range s.middlewareChain {
+		if healthChecker, ok := mw.(middleware.HealthChecker); ok && healthChecker.HealthCheckEnabled() {
+			isHealthy := healthChecker.IsHealthy()
+			middlewareStatuses[mw.Name()] = map[string]bool{
+				"healthy": isHealthy,
+			}
+			if !isHealthy {
+				middlewareHealthy = false
+			}
+		}
+	}
+
+	// Overall status is healthy only if both database and middleware are healthy
 	var status string
 	var statusCode int
+	overallHealthy := dbHealthy && middlewareHealthy
 
-	if dbHealthy {
+	if overallHealthy {
 		status = "healthy"
 		statusCode = http.StatusOK
 	} else {
@@ -161,6 +179,11 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 		"database": map[string]bool{
 			"connected": dbHealthy,
 		},
+	}
+
+	// Include middleware health status if any middleware supports health checking
+	if len(middlewareStatuses) > 0 {
+		response["middleware"] = middlewareStatuses
 	}
 
 	w.Header().Set("Content-Type", "application/json")

@@ -30,6 +30,14 @@ type CloseableMiddleware interface {
 	Close() error
 }
 
+// HealthChecker represents a middleware that can report its health status
+type HealthChecker interface {
+	// IsHealthy returns true if the middleware is healthy and can process requests properly
+	IsHealthy() bool
+	// HealthCheckEnabled returns true if health checking is enabled for this middleware
+	HealthCheckEnabled() bool
+}
+
 // Chain represents a chain of middleware to be executed
 type Chain []Middleware
 
