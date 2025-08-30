@@ -10,6 +10,8 @@ import (
 	"io"
 	"math/big"
 	"net/http"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -40,29 +42,34 @@ type JWK struct {
 
 // JWKSClient manages JWKS fetching and caching
 type JWKSClient struct {
-	jwksURL    string
-	cache      *JWKSCache
-	cacheMutex sync.RWMutex
-	httpClient *http.Client
+	jwksURL            string
+	cache              *JWKSCache
+	cacheMutex         sync.RWMutex
+	httpClient         *http.Client
+	fallbackTTL        time.Duration
+	lastRefetchAttempt time.Time
+	refetchMinInterval time.Duration // minimum interval between refetch attempts
 }
 
-// NewJWKSClient creates a new JWKS client with configurable cache TTL
-func NewJWKSClient(jwksURL string, cacheTTL time.Duration) *JWKSClient {
+// NewJWKSClient creates a new JWKS client with configurable fallback TTL
+func NewJWKSClient(jwksURL string, fallbackTTL time.Duration) *JWKSClient {
 	return &JWKSClient{
 		jwksURL: jwksURL,
 		cache: &JWKSCache{
 			keysByID: make(map[string]*rsa.PublicKey),
-			ttl:      cacheTTL,
+			ttl:      fallbackTTL,
 		},
 		httpClient: &http.Client{
 			Timeout: 30 * time.Second,
 		},
+		fallbackTTL:        fallbackTTL,
+		refetchMinInterval: 30 * time.Second, // prevent excessive refetch attempts
 	}
 }
 
 // GetPublicKey retrieves the public key for the given key ID
 func (c *JWKSClient) GetPublicKey(kid string) (*rsa.PublicKey, error) {
-	cache, err := c.fetchJWKSWithCache()
+	cache, err := c.fetchJWKSWithCache(kid)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch JWKS: %w", err)
 	}
@@ -75,17 +82,66 @@ func (c *JWKSClient) GetPublicKey(kid string) (*rsa.PublicKey, error) {
 	return rsaPublicKey, nil
 }
 
-// fetchJWKSWithCache fetches JWKS with caching logic
-func (c *JWKSClient) fetchJWKSWithCache() (*JWKSCache, error) {
+// fetchJWKSWithCache fetches JWKS with caching logic and handles refetching for unknown keys
+func (c *JWKSClient) fetchJWKSWithCache(kid string) (*JWKSCache, error) {
 	c.cacheMutex.Lock()
 	defer c.cacheMutex.Unlock()
 
 	// Check if cache is still valid
-	if time.Since(c.cache.fetchedAt) < c.cache.ttl && c.cache.keysByID != nil && len(c.cache.keysByID) > 0 {
+	if c.isCacheValid() {
+		if kid == "" {
+			// No specific key requested, return valid cache
+			return c.cache, nil
+		}
+
+		if _, exists := c.cache.keysByID[kid]; exists {
+			// Key found in valid cache
+			return c.cache, nil
+		}
+
+		// Looking for a specific key and it's not in the cache, try refetch
+
+		if time.Since(c.lastRefetchAttempt) < c.refetchMinInterval {
+			// rate limited, return existing cache (will result in key not found)
+			return c.cache, nil
+		}
+
+		// Attempt to refetch
+		c.lastRefetchAttempt = time.Now()
+		newCache, err := c.fetchJWKSFromServer()
+		if err != nil {
+			// Refetch failed, return existing cache (will result in key not found)
+			return c.cache, nil
+		}
+
+		// Check if the new cache contains the requested key
+		if _, keyExists := newCache.keysByID[kid]; keyExists {
+			// Update cache only if refetch succeeded and contains the key
+			c.cache.fetchedAt = newCache.fetchedAt
+			c.cache.keysByID = newCache.keysByID
+			c.cache.ttl = newCache.ttl
+		}
+
+		// cache is valid anyway
 		return c.cache, nil
 	}
 
-	// Fetch fresh JWKS
+	// Cache is invalid, fetch fresh JWKS
+	newCache, err := c.fetchJWKSFromServer()
+	if err != nil {
+		return nil, err
+	}
+
+	// Update cache
+	c.cache.fetchedAt = newCache.fetchedAt
+	c.cache.keysByID = newCache.keysByID
+	c.cache.ttl = newCache.ttl
+
+	return c.cache, nil
+}
+
+// fetchJWKSFromServer fetches JWKS from the server and returns a new cache without updating the existing one
+func (c *JWKSClient) fetchJWKSFromServer() (*JWKSCache, error) {
 	response, err := c.httpClient.Get(c.jwksURL)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch JWKS from %s: %w", c.jwksURL, err)
@@ -100,6 +156,9 @@ func (c *JWKSClient) fetchJWKSWithCache() (*JWKSCache, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to read JWKS response: %w", err)
 	}
+
+	// Parse Cache-Control header to determine TTL
+	cacheTTL := c.parseCacheControl(response.Header.Get("Cache-Control"))
 
 	// Parse JWKS format
 	var jwksResponse JWKSResponse
@@ -120,11 +179,12 @@ func (c *JWKSClient) fetchJWKSWithCache() (*JWKSCache, error) {
 		}
 	}
 
-	// Update cache
-	c.cache.fetchedAt = time.Now()
-	c.cache.keysByID = keysByID
-
-	return c.cache, nil
+	// Return new cache without updating the existing one
+	return &JWKSCache{
+		fetchedAt: time.Now(),
+		keysByID:  keysByID,
+		ttl:       cacheTTL,
+	}, nil
 }
 
 // parseRSAKey parses an RSA key from JWK format
@@ -244,4 +304,44 @@ func (c *JWKSClient) ValidateToken(tokenString string, expectedIssuer, expectedA
 	}
 
 	return claims, nil
+}
+
+// isCacheValid checks if the current cache is still valid
+func (c *JWKSClient) isCacheValid() bool {
+	if c.cache.keysByID == nil || len(c.cache.keysByID) == 0 {
+		return false
+	}
+
+	valid := time.Since(c.cache.fetchedAt) < c.cache.ttl
+	return valid
+}
+
+// parseCacheControl parses the Cache-Control header and returns TTL
+func (c *JWKSClient) parseCacheControl(cacheControl string) time.Duration {
+	if cacheControl == "" {
+		// No cache control header - use fallback TTL
+		return c.fallbackTTL
+	}
+
+	// Parse Cache-Control header directives
+	directives := strings.Split(cacheControl, ",")
+	for _, directive := range directives {
+		directive = strings.TrimSpace(directive)
+
+		// Check for max-age directive
+		if strings.HasPrefix(directive, "max-age=") {
+			maxAgeStr := strings.TrimPrefix(directive, "max-age=")
+			if maxAge, err := strconv.Atoi(maxAgeStr); err == nil && maxAge >= 0 {
+				return time.Duration(maxAge) * time.Second
+			}
+		}
+
+		// Check for no-cache or no-store (treat as immediate expiry)
+		if directive == "no-cache" || directive == "no-store" {
+			return 0
+		}
+	}
+
+	// If Cache-Control header exists but no max-age found, use fallback TTL
+	return c.fallbackTTL
 }
