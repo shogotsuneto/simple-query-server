@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"context"
+	"log"
 	"net/http"
 )
 
@@ -22,6 +23,13 @@ type Middleware interface {
 	Name() string
 }
 
+// CloseableMiddleware represents a middleware that needs cleanup
+type CloseableMiddleware interface {
+	Middleware
+	// Close cleans up resources used by the middleware
+	Close() error
+}
+
 // Chain represents a chain of middleware to be executed
 type Chain []Middleware
 
@@ -33,6 +41,19 @@ func (c Chain) Wrap(handler http.HandlerFunc) http.HandlerFunc {
 		handler = c[i].Wrap(handler)
 	}
 	return handler
+}
+
+// Close closes all closeable middleware in the chain
+func (c Chain) Close() error {
+	for _, middleware := range c {
+		if closeable, ok := middleware.(CloseableMiddleware); ok {
+			if err := closeable.Close(); err != nil {
+				// Log error but continue closing other middleware
+				log.Printf("Error closing middleware %s: %v", middleware.Name(), err)
+			}
+		}
+	}
+	return nil
 }
 
 // GetMiddlewareParams extracts middleware parameters from the request context
