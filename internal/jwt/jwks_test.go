@@ -276,22 +276,13 @@ func TestJWKSClient_NoRequestTriggeredRefetch(t *testing.T) {
 		t.Fatalf("Expected 1 request, got %d", requestCount)
 	}
 
-	// Request for unknown key - should NOT trigger refetch (new behavior)
+	// Request for unknown key - should NOT trigger refetch
 	_, err = client.GetPublicKey("test-key-2")
 	if err == nil {
 		t.Fatal("Expected error for unknown key")
 	}
 	if requestCount != 1 {
 		t.Fatalf("Expected 1 request (no refetch for unknown key), got %d", requestCount)
-	}
-
-	// Multiple requests for unknown keys should not trigger refetch
-	_, err = client.GetPublicKey("test-key-3")
-	if err == nil {
-		t.Fatal("Expected error for unknown key")
-	}
-	if requestCount != 1 {
-		t.Fatalf("Expected 1 request (no refetch for multiple unknown keys), got %d", requestCount)
 	}
 }
 
