@@ -118,12 +118,8 @@ func (c *JWKSClient) backgroundRefresh() {
 	defer close(c.refreshDone)
 
 	// Initial fetch to populate cache
-	initialFetchDone := false
 	c.performRefresh()
-	if !initialFetchDone {
-		close(c.initialized)
-		initialFetchDone = true
-	}
+	close(c.initialized)
 
 	for {
 		// Calculate next refresh time
@@ -134,10 +130,6 @@ func (c *JWKSClient) backgroundRefresh() {
 			return
 		case <-time.After(waitDuration):
 			c.performRefresh()
-			if !initialFetchDone {
-				close(c.initialized)
-				initialFetchDone = true
-			}
 		}
 	}
 }
