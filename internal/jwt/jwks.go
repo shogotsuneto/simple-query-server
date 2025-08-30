@@ -159,12 +159,18 @@ func (c *JWKSClient) backgroundRefresh() {
 
 // calculateBackoffDuration calculates the wait duration with exponential backoff and jitter
 func (c *JWKSClient) calculateBackoffDuration() time.Duration {
+	// If there are no failures, no backoff is needed
+	if c.failureCount == 0 {
+		return 0
+	}
+
 	// Base retry interval starts at 30 seconds
 	baseInterval := 30 * time.Second
 
-	// Calculate exponential backoff: min(baseInterval * 2^failureCount, maxInterval)
+	// Calculate exponential backoff: min(baseInterval * 2^(failureCount-1), maxInterval)
+	// This gives us: 1st failure = 30s, 2nd failure = 60s, 3rd failure = 120s, etc.
 	maxInterval := 10 * time.Minute // Cap backoff at 10 minutes
-	backoffInterval := time.Duration(float64(baseInterval) * math.Pow(2, float64(c.failureCount)))
+	backoffInterval := time.Duration(float64(baseInterval) * math.Pow(2, float64(c.failureCount-1)))
 	if backoffInterval > maxInterval {
 		backoffInterval = maxInterval
 	}

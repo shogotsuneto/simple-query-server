@@ -312,18 +312,24 @@ func TestJWKSClient_BackoffCalculation(t *testing.T) {
 		{
 			name:         "No failures",
 			failureCount: 0,
-			minExpected:  22 * time.Second, // 30s - 25% jitter
-			maxExpected:  38 * time.Second, // 30s + 25% jitter
+			minExpected:  0,               // Should return 0 immediately
+			maxExpected:  0,               // Should return 0 immediately
 		},
 		{
 			name:         "One failure",
 			failureCount: 1,
-			minExpected:  45 * time.Second, // 60s - 25% jitter
-			maxExpected:  75 * time.Second, // 60s + 25% jitter
+			minExpected:  22 * time.Second, // 30s - 25% jitter
+			maxExpected:  38 * time.Second, // 30s + 25% jitter
 		},
 		{
 			name:         "Two failures",
 			failureCount: 2,
+			minExpected:  45 * time.Second, // 60s - 25% jitter
+			maxExpected:  75 * time.Second, // 60s + 25% jitter
+		},
+		{
+			name:         "Three failures",
+			failureCount: 3,
 			minExpected:  90 * time.Second,  // 120s - 25% jitter
 			maxExpected:  150 * time.Second, // 120s + 25% jitter
 		},
@@ -343,8 +349,16 @@ func TestJWKSClient_BackoffCalculation(t *testing.T) {
 
 			duration := client.calculateBackoffDuration()
 
-			if duration < tt.minExpected || duration > tt.maxExpected {
-				t.Fatalf("Expected duration between %v and %v, got %v", tt.minExpected, tt.maxExpected, duration)
+			if tt.failureCount == 0 {
+				// For no failures, we expect exactly 0
+				if duration != 0 {
+					t.Fatalf("Expected duration 0 for no failures, got %v", duration)
+				}
+			} else {
+				// For failures, check the range with jitter
+				if duration < tt.minExpected || duration > tt.maxExpected {
+					t.Fatalf("Expected duration between %v and %v, got %v", tt.minExpected, tt.maxExpected, duration)
+				}
 			}
 		})
 	}
