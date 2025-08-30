@@ -53,10 +53,11 @@ type JWKSClient struct {
 	fallbackTTL time.Duration
 
 	// Background goroutine management
-	ctx         context.Context
-	cancel      context.CancelFunc
-	refreshDone chan struct{}
-	initialized chan struct{} // signals when initial fetch is complete
+	ctx              context.Context
+	cancel           context.CancelFunc
+	refreshDone      chan struct{}
+	initialized      chan struct{} // signals when initial fetch is complete
+	initialFetchDone bool          // tracks whether initial fetch has completed
 
 	// Exponential backoff for failed refresh attempts
 	failureCount int
@@ -75,12 +76,13 @@ func NewJWKSClient(jwksURL string, fallbackTTL time.Duration) *JWKSClient {
 		httpClient: &http.Client{
 			Timeout: 30 * time.Second,
 		},
-		fallbackTTL:  fallbackTTL,
-		ctx:          ctx,
-		cancel:       cancel,
-		refreshDone:  make(chan struct{}),
-		initialized:  make(chan struct{}),
-		failureCount: 0,
+		fallbackTTL:      fallbackTTL,
+		ctx:              ctx,
+		cancel:           cancel,
+		refreshDone:      make(chan struct{}),
+		initialized:      make(chan struct{}),
+		initialFetchDone: false,
+		failureCount:     0,
 	}
 
 	// Start background refresh goroutine
@@ -118,12 +120,7 @@ func (c *JWKSClient) backgroundRefresh() {
 	defer close(c.refreshDone)
 
 	// Initial fetch to populate cache
-	initialFetchDone := false
 	c.performRefresh()
-	if !initialFetchDone {
-		close(c.initialized)
-		initialFetchDone = true
-	}
 
 	for {
 		// Calculate next refresh time
@@ -134,10 +131,6 @@ func (c *JWKSClient) backgroundRefresh() {
 			return
 		case <-time.After(waitDuration):
 			c.performRefresh()
-			if !initialFetchDone {
-				close(c.initialized)
-				initialFetchDone = true
-			}
 		}
 	}
 }
@@ -198,15 +191,22 @@ func (c *JWKSClient) performRefresh() {
 		c.cacheMutex.Lock()
 		c.failureCount++
 		c.cacheMutex.Unlock()
-		return
+	} else {
+		// Success - reset failure count and update cache
+		c.cacheMutex.Lock()
+		c.failureCount = 0
+		c.cache.fetchedAt = newCache.fetchedAt
+		c.cache.keysByID = newCache.keysByID
+		c.cache.ttl = newCache.ttl
+		c.cacheMutex.Unlock()
 	}
 
-	// Success - reset failure count and update cache
+	// Handle initialization completion (regardless of success/failure)
 	c.cacheMutex.Lock()
-	c.failureCount = 0
-	c.cache.fetchedAt = newCache.fetchedAt
-	c.cache.keysByID = newCache.keysByID
-	c.cache.ttl = newCache.ttl
+	if !c.initialFetchDone {
+		close(c.initialized)
+		c.initialFetchDone = true
+	}
 	c.cacheMutex.Unlock()
 }
 
