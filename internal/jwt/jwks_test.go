@@ -303,8 +303,8 @@ func TestJWKSClient_BackoffCalculation(t *testing.T) {
 		{
 			name:         "No failures",
 			failureCount: 0,
-			minExpected:  0,               // Should return 0 immediately
-			maxExpected:  0,               // Should return 0 immediately
+			minExpected:  0, // Should return 0 immediately
+			maxExpected:  0, // Should return 0 immediately
 		},
 		{
 			name:         "One failure",
