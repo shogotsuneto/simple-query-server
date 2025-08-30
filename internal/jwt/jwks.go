@@ -166,20 +166,6 @@ func (c *JWKSClient) performRefresh() {
 	c.cacheMutex.Unlock()
 }
 
-// fetchJWKSWithCache is now simplified to only check local cache validity
-func (c *JWKSClient) fetchJWKSWithCache(kid string) (*JWKSCache, error) {
-	c.cacheMutex.RLock()
-	defer c.cacheMutex.RUnlock()
-
-	// Check if cache is still valid
-	if c.isCacheValid() {
-		return c.cache, nil
-	}
-
-	// Cache is invalid and we don't fetch in request context anymore
-	return nil, fmt.Errorf("JWKS cache is invalid and refresh is handled by background goroutine")
-}
-
 // fetchJWKSFromServer fetches JWKS from the server and returns a new cache without updating the existing one
 func (c *JWKSClient) fetchJWKSFromServer() (*JWKSCache, error) {
 	response, err := c.httpClient.Get(c.jwksURL)
@@ -344,16 +330,6 @@ func (c *JWKSClient) ValidateToken(tokenString string, expectedIssuer, expectedA
 	}
 
 	return claims, nil
-}
-
-// isCacheValid checks if the current cache is still valid
-func (c *JWKSClient) isCacheValid() bool {
-	if c.cache.keysByID == nil || len(c.cache.keysByID) == 0 {
-		return false
-	}
-
-	valid := time.Since(c.cache.fetchedAt) < c.cache.ttl
-	return valid
 }
 
 // parseCacheControl parses the Cache-Control header and returns TTL
