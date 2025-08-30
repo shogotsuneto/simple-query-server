@@ -414,7 +414,7 @@ func TestJWKSClient_IsHealthy(t *testing.T) {
 		}
 	})
 
-	t.Run("UnhealthyWithFailures", func(t *testing.T) {
+	t.Run("HealthyWithFailuresButValidCache", func(t *testing.T) {
 		requestCount := 0
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			requestCount++
@@ -432,6 +432,7 @@ func TestJWKSClient_IsHealthy(t *testing.T) {
 					]
 				}`
 				w.Header().Set("Content-Type", "application/json")
+				w.Header().Set("Cache-Control", "max-age=3600") // Long TTL for testing
 				w.WriteHeader(http.StatusOK)
 				w.Write([]byte(mockJWKS))
 			} else {
@@ -441,7 +442,7 @@ func TestJWKSClient_IsHealthy(t *testing.T) {
 		}))
 		defer server.Close()
 
-		client := NewJWKSClient(server.URL, 100*time.Millisecond) // Short TTL for quick expiry
+		client := NewJWKSClient(server.URL, 1*time.Hour) // Long TTL
 		defer client.Close()
 
 		client.WaitForInitialization()
@@ -456,9 +457,10 @@ func TestJWKSClient_IsHealthy(t *testing.T) {
 		client.failureCount = 1
 		client.cacheMutex.Unlock()
 
-		// Should now be unhealthy due to failures
-		if client.IsHealthy() {
-			t.Fatal("Expected unhealthy with failure count > 0")
+		// Should still be healthy because cache is valid, even with failures
+		// Failure count doesn't matter if cache is still valid - refetch is scheduled before expiry
+		if !client.IsHealthy() {
+			t.Fatal("Expected healthy with failure count > 0 but valid cache")
 		}
 	})
 

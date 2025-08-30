@@ -94,7 +94,7 @@ func (c *JWKSClient) WaitForInitialization() {
 	<-c.initialized
 }
 
-// IsHealthy returns true if the JWKS client has valid, unexpired keys and no recent failures
+// IsHealthy returns true if the JWKS client has valid, unexpired keys
 func (c *JWKSClient) IsHealthy() bool {
 	// Wait for initial fetch to complete
 	select {
@@ -113,16 +113,13 @@ func (c *JWKSClient) IsHealthy() bool {
 		return false
 	}
 
-	// Check if there are recent failures
-	if c.failureCount > 0 {
-		return false
-	}
-
 	// Check if cache is expired
 	if time.Since(c.cache.fetchedAt) >= c.cache.ttl {
 		return false
 	}
 
+	// As long as we have valid, unexpired keys, the JWKS is healthy
+	// Failure count doesn't matter if cache is still valid - refetch is scheduled before expiry
 	return true
 }
 
