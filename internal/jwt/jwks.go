@@ -1,6 +1,7 @@
 package jwt
 
 import (
+	"context"
 	"crypto/rsa"
 	"crypto/x509"
 	"encoding/base64"
@@ -8,6 +9,7 @@ import (
 	"encoding/pem"
 	"fmt"
 	"io"
+	"log"
 	"math/big"
 	"net/http"
 	"strconv"
@@ -49,11 +51,19 @@ type JWKSClient struct {
 	fallbackTTL        time.Duration
 	lastRefetchAttempt time.Time
 	refetchMinInterval time.Duration // minimum interval between refetch attempts
+
+	// Background goroutine management
+	ctx         context.Context
+	cancel      context.CancelFunc
+	refreshDone chan struct{}
+	initialized chan struct{} // signals when initial fetch is complete
 }
 
 // NewJWKSClient creates a new JWKS client with configurable fallback TTL
 func NewJWKSClient(jwksURL string, fallbackTTL time.Duration) *JWKSClient {
-	return &JWKSClient{
+	ctx, cancel := context.WithCancel(context.Background())
+	
+	client := &JWKSClient{
 		jwksURL: jwksURL,
 		cache: &JWKSCache{
 			keysByID: make(map[string]*rsa.PublicKey),
@@ -64,17 +74,35 @@ func NewJWKSClient(jwksURL string, fallbackTTL time.Duration) *JWKSClient {
 		},
 		fallbackTTL:        fallbackTTL,
 		refetchMinInterval: 30 * time.Second, // prevent excessive refetch attempts
+		ctx:                ctx,
+		cancel:             cancel,
+		refreshDone:        make(chan struct{}),
+		initialized:        make(chan struct{}),
 	}
+
+	// Start background refresh goroutine
+	go client.backgroundRefresh()
+
+	return client
 }
 
-// GetPublicKey retrieves the public key for the given key ID
-func (c *JWKSClient) GetPublicKey(kid string) (*rsa.PublicKey, error) {
-	cache, err := c.fetchJWKSWithCache(kid)
-	if err != nil {
-		return nil, fmt.Errorf("failed to fetch JWKS: %w", err)
-	}
+// WaitForInitialization waits for the initial JWKS fetch to complete (mainly for testing)
+func (c *JWKSClient) WaitForInitialization() {
+	<-c.initialized
+}
 
-	rsaPublicKey, exists := cache.keysByID[kid]
+// Close stops the background refresh goroutine and cleans up resources
+func (c *JWKSClient) Close() {
+	c.cancel()
+	<-c.refreshDone
+}
+
+// GetPublicKey retrieves the public key for the given key ID from local cache only
+func (c *JWKSClient) GetPublicKey(kid string) (*rsa.PublicKey, error) {
+	c.cacheMutex.RLock()
+	defer c.cacheMutex.RUnlock()
+
+	rsaPublicKey, exists := c.cache.keysByID[kid]
 	if !exists {
 		return nil, fmt.Errorf("key not found for kid: %s", kid)
 	}
@@ -82,62 +110,77 @@ func (c *JWKSClient) GetPublicKey(kid string) (*rsa.PublicKey, error) {
 	return rsaPublicKey, nil
 }
 
-// fetchJWKSWithCache fetches JWKS with caching logic and handles refetching for unknown keys
-func (c *JWKSClient) fetchJWKSWithCache(kid string) (*JWKSCache, error) {
-	c.cacheMutex.Lock()
-	defer c.cacheMutex.Unlock()
+// backgroundRefresh runs in a background goroutine to proactively refresh JWKS before expiration
+func (c *JWKSClient) backgroundRefresh() {
+	defer close(c.refreshDone)
 
-	// Check if cache is still valid
-	if c.isCacheValid() {
-		if kid == "" {
-			// No specific key requested, return valid cache
-			return c.cache, nil
-		}
-
-		if _, exists := c.cache.keysByID[kid]; exists {
-			// Key found in valid cache
-			return c.cache, nil
-		}
-
-		// Looking for a specific key and it's not in the cache, try refetch
-
-		if time.Since(c.lastRefetchAttempt) < c.refetchMinInterval {
-			// rate limited, return existing cache (will result in key not found)
-			return c.cache, nil
-		}
-
-		// Attempt to refetch
-		c.lastRefetchAttempt = time.Now()
-		newCache, err := c.fetchJWKSFromServer()
-		if err != nil {
-			// Refetch failed, return existing cache (will result in key not found)
-			return c.cache, nil
-		}
-
-		// Check if the new cache contains the requested key
-		if _, keyExists := newCache.keysByID[kid]; keyExists {
-			// Update cache only if refetch succeeded and contains the key
-			c.cache.fetchedAt = newCache.fetchedAt
-			c.cache.keysByID = newCache.keysByID
-			c.cache.ttl = newCache.ttl
-		}
-
-		// cache is valid anyway
-		return c.cache, nil
+	// Initial fetch to populate cache
+	initialFetchDone := false
+	c.performRefresh()
+	if !initialFetchDone {
+		close(c.initialized)
+		initialFetchDone = true
 	}
 
-	// Cache is invalid, fetch fresh JWKS
+	for {
+		// Calculate next refresh time (80% of TTL to refresh before expiration)
+		c.cacheMutex.RLock()
+		var waitDuration time.Duration
+		if len(c.cache.keysByID) > 0 {
+			// We have valid cache, calculate next refresh time
+			refreshTime := c.cache.fetchedAt.Add(time.Duration(float64(c.cache.ttl) * 0.8))
+			waitDuration = time.Until(refreshTime)
+			if waitDuration < 0 {
+				waitDuration = 0
+			}
+		} else {
+			// No valid cache, retry in 30 seconds
+			waitDuration = 30 * time.Second
+		}
+		c.cacheMutex.RUnlock()
+
+		select {
+		case <-c.ctx.Done():
+			return
+		case <-time.After(waitDuration):
+			c.performRefresh()
+			if !initialFetchDone {
+				close(c.initialized)
+				initialFetchDone = true
+			}
+		}
+	}
+}
+
+// performRefresh fetches JWKS and updates cache, handling errors gracefully
+func (c *JWKSClient) performRefresh() {
 	newCache, err := c.fetchJWKSFromServer()
 	if err != nil {
-		return nil, err
+		// Log error but don't block - this allows server to start without JWKS being available
+		// In production, you might want to use a proper logger
+		log.Printf("JWKS refresh failed: %v", err)
+		return
 	}
 
-	// Update cache
+	c.cacheMutex.Lock()
 	c.cache.fetchedAt = newCache.fetchedAt
 	c.cache.keysByID = newCache.keysByID
 	c.cache.ttl = newCache.ttl
+	c.cacheMutex.Unlock()
+}
 
-	return c.cache, nil
+// fetchJWKSWithCache is now simplified to only check local cache validity
+func (c *JWKSClient) fetchJWKSWithCache(kid string) (*JWKSCache, error) {
+	c.cacheMutex.RLock()
+	defer c.cacheMutex.RUnlock()
+
+	// Check if cache is still valid
+	if c.isCacheValid() {
+		return c.cache, nil
+	}
+
+	// Cache is invalid and we don't fetch in request context anymore
+	return nil, fmt.Errorf("JWKS cache is invalid and refresh is handled by background goroutine")
 }
 
 // fetchJWKSFromServer fetches JWKS from the server and returns a new cache without updating the existing one

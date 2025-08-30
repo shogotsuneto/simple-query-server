@@ -96,6 +96,11 @@ func (s *Server) Start(ctx context.Context, port string) error {
 		log.Printf("Server shutdown error: %v", err)
 	}
 
+	// Close middleware chain
+	if err := s.middlewareChain.Close(); err != nil {
+		log.Printf("Middleware close error: %v", err)
+	}
+
 	// Close database executor
 	if err := s.executor.Close(); err != nil {
 		log.Printf("Database executor close error: %v", err)

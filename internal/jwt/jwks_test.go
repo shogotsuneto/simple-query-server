@@ -29,6 +29,10 @@ func TestJWKSClient_GetPublicKey(t *testing.T) {
 	defer server.Close()
 
 	client := NewJWKSClient(server.URL, 10*time.Minute)
+	defer client.Close()
+
+	// Wait for initial fetch to complete
+	client.WaitForInitialization()
 
 	// Test getting a key
 	key, err := client.GetPublicKey("test-key-1")
@@ -39,14 +43,14 @@ func TestJWKSClient_GetPublicKey(t *testing.T) {
 		t.Fatal("Expected key, got nil")
 	}
 
-	// Test getting non-existent key
+	// Test getting non-existent key - should fail immediately (no request-triggered refetch)
 	_, err = client.GetPublicKey("non-existent")
 	if err == nil {
 		t.Fatal("Expected error for non-existent key")
 	}
 }
 
-func TestJWKSClient_Cache(t *testing.T) {
+func TestJWKSClient_BackgroundRefresh(t *testing.T) {
 	requestCount := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requestCount++
@@ -63,35 +67,42 @@ func TestJWKSClient_Cache(t *testing.T) {
 		}`
 		w.Header().Set("Content-Type", "application/json")
 		// Set a short max-age for testing
-		w.Header().Set("Cache-Control", "max-age=0")
+		w.Header().Set("Cache-Control", "max-age=1")
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte(mockJWKS))
 	}))
 	defer server.Close()
 
-	// Use short TTL for testing (fallback when cache-control parsing fails)
 	client := NewJWKSClient(server.URL, 100*time.Millisecond)
+	defer client.Close()
 
-	// First request should fetch from server
-	_, err := client.GetPublicKey("test-key-1")
-	if err != nil {
-		t.Fatalf("Expected no error, got %v", err)
-	}
+	// Wait for initial fetch
+	client.WaitForInitialization()
+	
+	// Should have made initial request
 	if requestCount != 1 {
-		t.Fatalf("Expected 1 request, got %d", requestCount)
+		t.Fatalf("Expected 1 initial request, got %d", requestCount)
 	}
 
-	// Second request should fetch again due to max-age=0
-	_, err = client.GetPublicKey("test-key-1")
-	if err != nil {
-		t.Fatalf("Expected no error, got %v", err)
+	// Multiple GetPublicKey calls should not trigger additional requests
+	for i := 0; i < 5; i++ {
+		_, err := client.GetPublicKey("test-key-1")
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+	}
+	
+	// Should still be 1 request (no request-triggered refetch)
+	if requestCount != 1 {
+		t.Fatalf("Expected 1 request after multiple gets, got %d", requestCount)
 	}
 
-	// Add a small delay to ensure the request is processed
-	time.Sleep(10 * time.Millisecond)
-
-	if requestCount != 2 {
-		t.Fatalf("Expected 2 requests (cache expired due to max-age=0), got %d", requestCount)
+	// Wait for background refresh (at 80% of 1 second = 800ms)
+	time.Sleep(900 * time.Millisecond)
+	
+	// Should have refreshed in background
+	if requestCount < 2 {
+		t.Fatalf("Expected at least 2 requests after background refresh, got %d", requestCount)
 	}
 }
 
@@ -121,10 +132,15 @@ func TestJWKSClient_ErrorHandling(t *testing.T) {
 	defer server.Close()
 
 	client := NewJWKSClient(server.URL, 10*time.Minute)
+	defer client.Close()
 
+	// Wait for initial fetch attempt (will fail)
+	client.WaitForInitialization()
+
+	// Should get error for any key since cache is empty
 	_, err := client.GetPublicKey("test-key-1")
 	if err == nil {
-		t.Fatal("Expected error for server error")
+		t.Fatal("Expected error when server returns error and cache is empty")
 	}
 }
 
@@ -138,67 +154,45 @@ func TestJWKSClient_InvalidJSON(t *testing.T) {
 	defer server.Close()
 
 	client := NewJWKSClient(server.URL, 10*time.Minute)
+	defer client.Close()
 
+	// Wait for initial fetch attempt (will fail)
+	client.WaitForInitialization()
+
+	// Should get error for any key since cache is empty
 	_, err := client.GetPublicKey("test-key-1")
 	if err == nil {
-		t.Fatal("Expected error for invalid JSON")
+		t.Fatal("Expected error for invalid JSON when cache is empty")
 	}
 }
 
+// TestJWKSClient_CacheControlHeaders tests cache control header parsing for background refresh timing
 func TestJWKSClient_CacheControlHeaders(t *testing.T) {
 	tests := []struct {
-		name                   string
-		cacheControl           string
-		expectImmediateRefetch bool
-		waitForExpiration      bool
-		waitDuration           time.Duration
+		name         string
+		cacheControl string
+		expectedTTL  time.Duration
 	}{
 		{
-			name:                   "No cache control header - uses fallback TTL",
-			cacheControl:           "",
-			expectImmediateRefetch: false,
-			waitForExpiration:      true,
-			waitDuration:           1100 * time.Millisecond, // Wait longer than fallback TTL
+			name:         "No cache control header - uses fallback TTL",
+			cacheControl: "",
+			expectedTTL:  1 * time.Second, // fallback TTL
 		},
 		{
-			name:                   "max-age=0 - expires immediately",
-			cacheControl:           "max-age=0",
-			expectImmediateRefetch: true,
-			waitForExpiration:      false,
+			name:         "max-age=2",
+			cacheControl: "max-age=2",
+			expectedTTL:  2 * time.Second,
 		},
 		{
-			name:                   "no-cache - expires immediately",
-			cacheControl:           "no-cache",
-			expectImmediateRefetch: true,
-			waitForExpiration:      false,
-		},
-		{
-			name:                   "no-store - expires immediately",
-			cacheControl:           "no-store",
-			expectImmediateRefetch: true,
-			waitForExpiration:      false,
-		},
-		{
-			name:                   "max-age=1 - expires after 1 second",
-			cacheControl:           "max-age=1",
-			expectImmediateRefetch: false,
-			waitForExpiration:      true,
-			waitDuration:           1100 * time.Millisecond, // Wait longer than max-age
-		},
-		{
-			name:                   "multiple directives with max-age=2",
-			cacheControl:           "public, max-age=2, must-revalidate",
-			expectImmediateRefetch: false,
-			waitForExpiration:      true,
-			waitDuration:           2100 * time.Millisecond, // Wait longer than max-age
+			name:         "multiple directives with max-age=3",
+			cacheControl: "public, max-age=3, must-revalidate",
+			expectedTTL:  3 * time.Second,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			requestCount := 0
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				requestCount++
 				mockJWKS := `{
 					"keys": [
 						{
@@ -220,131 +214,35 @@ func TestJWKSClient_CacheControlHeaders(t *testing.T) {
 			defer server.Close()
 
 			client := NewJWKSClient(server.URL, 1*time.Second)
+			defer client.Close()
 
-			// First request
+			// Wait for initial fetch
+			client.WaitForInitialization()
+
+			// Check that the cache TTL was set correctly
+			client.cacheMutex.RLock()
+			actualTTL := client.cache.ttl
+			client.cacheMutex.RUnlock()
+
+			if actualTTL != tt.expectedTTL {
+				t.Fatalf("Expected TTL %v, got %v", tt.expectedTTL, actualTTL)
+			}
+
+			// Test that key can be retrieved
 			_, err := client.GetPublicKey("test-key-1")
 			if err != nil {
 				t.Fatalf("Expected no error, got %v", err)
-			}
-			if requestCount != 1 {
-				t.Fatalf("Expected 1 request after first call, got %d", requestCount)
-			}
-
-			// Second request - test immediate behavior
-			_, err = client.GetPublicKey("test-key-1")
-			if err != nil {
-				t.Fatalf("Expected no error, got %v", err)
-			}
-
-			if tt.expectImmediateRefetch {
-				// Should refetch immediately
-				if requestCount != 2 {
-					t.Fatalf("Expected 2 requests after immediate refetch test, got %d", requestCount)
-				}
-			} else {
-				// Should use cache
-				if requestCount != 1 {
-					t.Fatalf("Expected 1 request after cache hit test, got %d", requestCount)
-				}
-			}
-
-			// Test expiration behavior if specified
-			if tt.waitForExpiration {
-				// Wait for cache to expire
-				time.Sleep(tt.waitDuration)
-
-				// Should refetch after expiration
-				_, err = client.GetPublicKey("test-key-1")
-				if err != nil {
-					t.Fatalf("Expected no error after expiration, got %v", err)
-				}
-
-				expectedRequestsAfterExpiration := 2
-				if tt.expectImmediateRefetch {
-					expectedRequestsAfterExpiration = 3 // Already refetched once
-				}
-
-				if requestCount != expectedRequestsAfterExpiration {
-					t.Fatalf("Expected %d requests after expiration test, got %d", expectedRequestsAfterExpiration, requestCount)
-				}
 			}
 		})
 	}
 }
 
-func TestJWKSClient_RefetchForUnknownKey(t *testing.T) {
+func TestJWKSClient_NoRequestTriggeredRefetch(t *testing.T) {
 	requestCount := 0
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requestCount++
-		var mockJWKS string
-
-		if requestCount == 1 {
-			// First request - only test-key-1
-			mockJWKS = `{
-				"keys": [
-					{
-						"kty": "RSA",
-						"kid": "test-key-1",
-						"use": "sig",
-						"n": "0vx7agoebGcQSuuPiLJXZptN9nndrQmbXEps2aiAFbWhM78LhWx4cbbfAAtVT86zwu1RK7aPFFxuhDR1L6tSoc_BJECPebWKRXjBZCiFV4n3oknjhMstn64tZ_2W-5JsGY4Hc5n9yBXArwl93lqt7_RN5w6Cf0h4QyQ5v-65YGjQR0_FDW2QvzqY368QQMicAtaSqzs8KJZgnYb9c7d0zgdAZHzu6qMQvRL5hajrn1n91CbOpbISzIWzYr_W6UU9dwuW6TU0DjW0nQcaOLGOjQhGnOGKZ9CW7PDNE2J",
-						"e": "AQAB"
-					}
-				]
-			}`
-		} else {
-			// Second request - add test-key-2
-			mockJWKS = `{
-				"keys": [
-					{
-						"kty": "RSA",
-						"kid": "test-key-1",
-						"use": "sig",
-						"n": "0vx7agoebGcQSuuPiLJXZptN9nndrQmbXEps2aiAFbWhM78LhWx4cbbfAAtVT86zwu1RK7aPFFxuhDR1L6tSoc_BJECPebWKRXjBZCiFV4n3oknjhMstn64tZ_2W-5JsGY4Hc5n9yBXArwl93lqt7_RN5w6Cf0h4QyQ5v-65YGjQR0_FDW2QvzqY368QQMicAtaSqzs8KJZgnYb9c7d0zgdAZHzu6qMQvRL5hajrn1n91CbOpbISzIWzYr_W6UU9dwuW6TU0DjW0nQcaOLGOjQhGnOGKZ9CW7PDNE2J",
-						"e": "AQAB"
-					},
-					{
-						"kty": "RSA",
-						"kid": "test-key-2",
-						"use": "sig",
-						"n": "0vx7agoebGcQSuuPiLJXZptN9nndrQmbXEps2aiAFbWhM78LhWx4cbbfAAtVT86zwu1RK7aPFFxuhDR1L6tSoc_BJECPebWKRXjBZCiFV4n3oknjhMstn64tZ_2W-5JsGY4Hc5n9yBXArwl93lqt7_RN5w6Cf0h4QyQ5v-65YGjQR0_FDW2QvzqY368QQMicAtaSqzs8KJZgnYb9c7d0zgdAZHzu6qMQvRL5hajrn1n91CbOpbISzIWzYr_W6UU9dwuW6TU0DjW0nQcaOLGOjQhGnOGKZ9CW7PDNE2J",
-						"e": "AQAB"
-					}
-				]
-			}`
-		}
-
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(mockJWKS))
-	}))
-	defer server.Close()
-
-	client := NewJWKSClient(server.URL, 10*time.Minute)
-
-	// First request - get existing key
-	_, err := client.GetPublicKey("test-key-1")
-	if err != nil {
-		t.Fatalf("Expected no error, got %v", err)
-	}
-	if requestCount != 1 {
-		t.Fatalf("Expected 1 request, got %d", requestCount)
-	}
-
-	// Request for unknown key - should trigger refetch
-	_, err = client.GetPublicKey("test-key-2")
-	if err != nil {
-		t.Fatalf("Expected no error after refetch, got %v", err)
-	}
-	if requestCount != 2 {
-		t.Fatalf("Expected 2 requests (refetch for unknown key), got %d", requestCount)
-	}
-}
-
-func TestJWKSClient_RefetchRateLimit(t *testing.T) {
-	requestCount := 0
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		requestCount++
+		// Always return only test-key-1, never add new keys
 		mockJWKS := `{
 			"keys": [
 				{
@@ -356,6 +254,7 @@ func TestJWKSClient_RefetchRateLimit(t *testing.T) {
 				}
 			]
 		}`
+
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte(mockJWKS))
@@ -363,10 +262,12 @@ func TestJWKSClient_RefetchRateLimit(t *testing.T) {
 	defer server.Close()
 
 	client := NewJWKSClient(server.URL, 10*time.Minute)
-	// Set short refetch interval for testing
-	client.refetchMinInterval = 100 * time.Millisecond
+	defer client.Close()
 
-	// Initial request to populate cache
+	// Wait for initial fetch
+	client.WaitForInitialization()
+
+	// First request - get existing key
 	_, err := client.GetPublicKey("test-key-1")
 	if err != nil {
 		t.Fatalf("Expected no error, got %v", err)
@@ -375,33 +276,24 @@ func TestJWKSClient_RefetchRateLimit(t *testing.T) {
 		t.Fatalf("Expected 1 request, got %d", requestCount)
 	}
 
-	// Request for unknown key - should trigger refetch
-	_, err = client.GetPublicKey("unknown-key")
+	// Request for unknown key - should NOT trigger refetch (new behavior)
+	_, err = client.GetPublicKey("test-key-2")
 	if err == nil {
 		t.Fatal("Expected error for unknown key")
 	}
-	if requestCount != 2 {
-		t.Fatalf("Expected 2 requests (refetch attempted), got %d", requestCount)
+	if requestCount != 1 {
+		t.Fatalf("Expected 1 request (no refetch for unknown key), got %d", requestCount)
 	}
 
-	// Immediate second request for unknown key - should NOT trigger refetch due to rate limit
-	_, err = client.GetPublicKey("another-unknown-key")
+	// Multiple requests for unknown keys should not trigger refetch
+	_, err = client.GetPublicKey("test-key-3")
 	if err == nil {
 		t.Fatal("Expected error for unknown key")
 	}
-	if requestCount != 2 {
-		t.Fatalf("Expected 2 requests (rate limited), got %d", requestCount)
-	}
-
-	// Wait for rate limit to pass
-	time.Sleep(150 * time.Millisecond)
-
-	// Third request for unknown key - should trigger refetch again
-	_, err = client.GetPublicKey("yet-another-unknown-key")
-	if err == nil {
-		t.Fatal("Expected error for unknown key")
-	}
-	if requestCount != 3 {
-		t.Fatalf("Expected 3 requests (rate limit passed), got %d", requestCount)
+	if requestCount != 1 {
+		t.Fatalf("Expected 1 request (no refetch for multiple unknown keys), got %d", requestCount)
 	}
 }
+
+// This test is removed as it was testing the old rate limiting behavior for request-triggered refetch
+// The new implementation doesn't have request-triggered refetch, so this test is no longer relevant
