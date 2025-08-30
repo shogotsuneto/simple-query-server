@@ -147,34 +147,50 @@ func TestJWKSClient_InvalidJSON(t *testing.T) {
 
 func TestJWKSClient_CacheControlHeaders(t *testing.T) {
 	tests := []struct {
-		name            string
-		cacheControl    string
-		expectedExpires bool
+		name                   string
+		cacheControl           string
+		expectImmediateRefetch bool
+		waitForExpiration      bool
+		waitDuration           time.Duration
 	}{
 		{
-			name:            "No cache control header - never expires",
-			cacheControl:    "",
-			expectedExpires: false,
+			name:                   "No cache control header - uses fallback TTL",
+			cacheControl:           "",
+			expectImmediateRefetch: false,
+			waitForExpiration:      true,
+			waitDuration:           1100 * time.Millisecond, // Wait longer than fallback TTL
 		},
 		{
-			name:            "max-age=300 - expires in 300 seconds",
-			cacheControl:    "max-age=300",
-			expectedExpires: true,
+			name:                   "max-age=0 - expires immediately",
+			cacheControl:           "max-age=0",
+			expectImmediateRefetch: true,
+			waitForExpiration:      false,
 		},
 		{
-			name:            "no-cache - expires immediately",
-			cacheControl:    "no-cache",
-			expectedExpires: true,
+			name:                   "no-cache - expires immediately",
+			cacheControl:           "no-cache",
+			expectImmediateRefetch: true,
+			waitForExpiration:      false,
 		},
 		{
-			name:            "no-store - expires immediately",
-			cacheControl:    "no-store",
-			expectedExpires: true,
+			name:                   "no-store - expires immediately",
+			cacheControl:           "no-store",
+			expectImmediateRefetch: true,
+			waitForExpiration:      false,
 		},
 		{
-			name:            "multiple directives with max-age",
-			cacheControl:    "public, max-age=600, must-revalidate",
-			expectedExpires: true,
+			name:                   "max-age=1 - expires after 1 second",
+			cacheControl:           "max-age=1",
+			expectImmediateRefetch: false,
+			waitForExpiration:      true,
+			waitDuration:           1100 * time.Millisecond, // Wait longer than max-age
+		},
+		{
+			name:                   "multiple directives with max-age=2",
+			cacheControl:           "public, max-age=2, must-revalidate",
+			expectImmediateRefetch: false,
+			waitForExpiration:      true,
+			waitDuration:           2100 * time.Millisecond, // Wait longer than max-age
 		},
 	}
 
@@ -211,23 +227,46 @@ func TestJWKSClient_CacheControlHeaders(t *testing.T) {
 				t.Fatalf("Expected no error, got %v", err)
 			}
 			if requestCount != 1 {
-				t.Fatalf("Expected 1 request, got %d", requestCount)
+				t.Fatalf("Expected 1 request after first call, got %d", requestCount)
 			}
 
-			// Second request - should use cache if not expired
+			// Second request - test immediate behavior
 			_, err = client.GetPublicKey("test-key-1")
 			if err != nil {
 				t.Fatalf("Expected no error, got %v", err)
 			}
 
-			expectedRequests := 1
-			if tt.expectedExpires && (tt.cacheControl == "no-cache" || tt.cacheControl == "no-store") {
-				// For no-cache/no-store, second request should refetch
-				expectedRequests = 2
+			if tt.expectImmediateRefetch {
+				// Should refetch immediately
+				if requestCount != 2 {
+					t.Fatalf("Expected 2 requests after immediate refetch test, got %d", requestCount)
+				}
+			} else {
+				// Should use cache
+				if requestCount != 1 {
+					t.Fatalf("Expected 1 request after cache hit test, got %d", requestCount)
+				}
 			}
 
-			if requestCount != expectedRequests {
-				t.Fatalf("Expected %d requests, got %d", expectedRequests, requestCount)
+			// Test expiration behavior if specified
+			if tt.waitForExpiration {
+				// Wait for cache to expire
+				time.Sleep(tt.waitDuration)
+
+				// Should refetch after expiration
+				_, err = client.GetPublicKey("test-key-1")
+				if err != nil {
+					t.Fatalf("Expected no error after expiration, got %v", err)
+				}
+
+				expectedRequestsAfterExpiration := 2
+				if tt.expectImmediateRefetch {
+					expectedRequestsAfterExpiration = 3 // Already refetched once
+				}
+
+				if requestCount != expectedRequestsAfterExpiration {
+					t.Fatalf("Expected %d requests after expiration test, got %d", expectedRequestsAfterExpiration, requestCount)
+				}
 			}
 		})
 	}
