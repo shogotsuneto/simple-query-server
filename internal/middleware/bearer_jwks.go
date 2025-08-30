@@ -113,3 +113,11 @@ func (m *BearerJWKSMiddleware) Wrap(next http.HandlerFunc) http.HandlerFunc {
 func (m *BearerJWKSMiddleware) Name() string {
 	return fmt.Sprintf("bearer-jwks(%s)", m.config.JWKSURL)
 }
+
+// Close cleans up resources used by the middleware
+func (m *BearerJWKSMiddleware) Close() error {
+	if m.jwksClient != nil {
+		m.jwksClient.Close()
+	}
+	return nil
+}
