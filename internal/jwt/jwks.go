@@ -10,7 +10,9 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math"
 	"math/big"
+	"math/rand"
 	"net/http"
 	"strconv"
 	"strings"
@@ -55,6 +57,11 @@ type JWKSClient struct {
 	cancel      context.CancelFunc
 	refreshDone chan struct{}
 	initialized chan struct{} // signals when initial fetch is complete
+
+	// Exponential backoff for failed refresh attempts
+	failureCount    int
+	lastRefreshTime time.Time
+	backoffMutex    sync.RWMutex
 }
 
 // NewJWKSClient creates a new JWKS client with configurable fallback TTL
@@ -70,11 +77,13 @@ func NewJWKSClient(jwksURL string, fallbackTTL time.Duration) *JWKSClient {
 		httpClient: &http.Client{
 			Timeout: 30 * time.Second,
 		},
-		fallbackTTL: fallbackTTL,
-		ctx:         ctx,
-		cancel:      cancel,
-		refreshDone: make(chan struct{}),
-		initialized: make(chan struct{}),
+		fallbackTTL:     fallbackTTL,
+		ctx:             ctx,
+		cancel:          cancel,
+		refreshDone:     make(chan struct{}),
+		initialized:     make(chan struct{}),
+		failureCount:    0,
+		lastRefreshTime: time.Now(),
 	}
 
 	// Start background refresh goroutine
@@ -120,20 +129,24 @@ func (c *JWKSClient) backgroundRefresh() {
 	}
 
 	for {
-		// Calculate next refresh time (80% of TTL to refresh before expiration)
+		// Calculate next refresh time
 		c.cacheMutex.RLock()
+		c.backoffMutex.RLock()
 		var waitDuration time.Duration
-		if len(c.cache.keysByID) > 0 {
-			// We have valid cache, calculate next refresh time
+
+		if len(c.cache.keysByID) > 0 && c.failureCount == 0 {
+			// We have valid cache and no recent failures, calculate next refresh time (80% of TTL)
 			refreshTime := c.cache.fetchedAt.Add(time.Duration(float64(c.cache.ttl) * 0.8))
 			waitDuration = time.Until(refreshTime)
 			if waitDuration < 0 {
 				waitDuration = 0
 			}
 		} else {
-			// No valid cache, retry in 30 seconds
-			waitDuration = 30 * time.Second
+			// No valid cache or we have recent failures, use exponential backoff with jitter
+			waitDuration = c.calculateBackoffDuration()
 		}
+
+		c.backoffMutex.RUnlock()
 		c.cacheMutex.RUnlock()
 
 		select {
@@ -149,15 +162,48 @@ func (c *JWKSClient) backgroundRefresh() {
 	}
 }
 
+// calculateBackoffDuration calculates the wait duration with exponential backoff and jitter
+func (c *JWKSClient) calculateBackoffDuration() time.Duration {
+	// Base retry interval starts at 30 seconds
+	baseInterval := 30 * time.Second
+
+	// Calculate exponential backoff: min(baseInterval * 2^failureCount, maxInterval)
+	maxInterval := 10 * time.Minute // Cap backoff at 10 minutes
+	backoffInterval := time.Duration(float64(baseInterval) * math.Pow(2, float64(c.failureCount)))
+	if backoffInterval > maxInterval {
+		backoffInterval = maxInterval
+	}
+
+	// Add jitter (±25% of the backoff interval) to prevent thundering herd
+	jitterRange := float64(backoffInterval) * 0.25
+	jitter := time.Duration(rand.Float64()*2*jitterRange - jitterRange)
+
+	return backoffInterval + jitter
+}
+
 // performRefresh fetches JWKS and updates cache, handling errors gracefully
 func (c *JWKSClient) performRefresh() {
+	c.backoffMutex.Lock()
+	c.lastRefreshTime = time.Now()
+	c.backoffMutex.Unlock()
+
 	newCache, err := c.fetchJWKSFromServer()
 	if err != nil {
 		// Log error but don't block - this allows server to start without JWKS being available
 		// In production, you might want to use a proper logger
 		log.Printf("JWKS refresh failed: %v", err)
+
+		// Increment failure count for exponential backoff
+		c.backoffMutex.Lock()
+		c.failureCount++
+		c.backoffMutex.Unlock()
 		return
 	}
+
+	// Success - reset failure count and update cache
+	c.backoffMutex.Lock()
+	c.failureCount = 0
+	c.backoffMutex.Unlock()
 
 	c.cacheMutex.Lock()
 	c.cache.fetchedAt = newCache.fetchedAt

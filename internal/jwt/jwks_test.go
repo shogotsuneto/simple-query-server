@@ -297,3 +297,55 @@ func TestJWKSClient_NoRequestTriggeredRefetch(t *testing.T) {
 
 // This test is removed as it was testing the old rate limiting behavior for request-triggered refetch
 // The new implementation doesn't have request-triggered refetch, so this test is no longer relevant
+
+// TestJWKSClient_BackoffCalculation tests the exponential backoff calculation logic
+func TestJWKSClient_BackoffCalculation(t *testing.T) {
+	client := NewJWKSClient("http://example.com", 10*time.Minute)
+	defer client.Close()
+
+	tests := []struct {
+		name         string
+		failureCount int
+		minExpected  time.Duration
+		maxExpected  time.Duration
+	}{
+		{
+			name:         "No failures",
+			failureCount: 0,
+			minExpected:  22 * time.Second, // 30s - 25% jitter
+			maxExpected:  38 * time.Second, // 30s + 25% jitter
+		},
+		{
+			name:         "One failure",
+			failureCount: 1,
+			minExpected:  45 * time.Second, // 60s - 25% jitter
+			maxExpected:  75 * time.Second, // 60s + 25% jitter
+		},
+		{
+			name:         "Two failures",
+			failureCount: 2,
+			minExpected:  90 * time.Second,  // 120s - 25% jitter
+			maxExpected:  150 * time.Second, // 120s + 25% jitter
+		},
+		{
+			name:         "Many failures (capped at max)",
+			failureCount: 10,
+			minExpected:  7*time.Minute + 30*time.Second,  // 10m - 25% jitter
+			maxExpected:  12*time.Minute + 30*time.Second, // 10m + 25% jitter
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			client.backoffMutex.Lock()
+			client.failureCount = tt.failureCount
+			client.backoffMutex.Unlock()
+
+			duration := client.calculateBackoffDuration()
+
+			if duration < tt.minExpected || duration > tt.maxExpected {
+				t.Fatalf("Expected duration between %v and %v, got %v", tt.minExpected, tt.maxExpected, duration)
+			}
+		})
+	}
+}
