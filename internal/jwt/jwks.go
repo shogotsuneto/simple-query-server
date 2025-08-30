@@ -90,40 +90,41 @@ func (c *JWKSClient) fetchJWKSWithCache(kid string) (*JWKSCache, error) {
 
 	// Check if cache is still valid
 	if c.isCacheValid() {
-		// If looking for a specific key and it's not in cache, try refetch (with rate limiting)
-		if kid != "" {
-			if _, exists := c.cache.keysByID[kid]; !exists {
-				if c.shouldAttemptRefetchLocked() {
-					// Attempt to refetch without invalidating existing cache
-					newCache, err := c.fetchJWKSFromServer()
-					if err != nil {
-						// Refetch failed, return existing cache (will result in key not found)
-						return c.cache, nil
-					}
-
-					// Check if the new cache contains the requested key
-					if _, keyExists := newCache.keysByID[kid]; keyExists {
-						// Update cache only if refetch succeeded and contains the key
-						c.cache.fetchedAt = newCache.fetchedAt
-						c.cache.keysByID = newCache.keysByID
-						c.cache.ttl = newCache.ttl
-						return c.cache, nil
-					}
-
-					// Key still not found in new fetch, return existing cache
-					return c.cache, nil
-				} else {
-					// Rate limited, return current cache
-					return c.cache, nil
-				}
-			} else {
-				// Key found in valid cache
-				return c.cache, nil
-			}
-		} else {
+		if kid == "" {
 			// No specific key requested, return valid cache
 			return c.cache, nil
 		}
+
+		if _, exists := c.cache.keysByID[kid]; exists {
+			// Key found in valid cache
+			return c.cache, nil
+		}
+
+		// Looking for a specific key and it's not in the cache, try refetch
+
+		if time.Since(c.lastRefetchAttempt) < c.refetchMinInterval {
+			// rate limited, return existing cache (will result in key not found)
+			return c.cache, nil
+		}
+
+		// Attempt to refetch
+		c.lastRefetchAttempt = time.Now()
+		newCache, err := c.fetchJWKSFromServer()
+		if err != nil {
+			// Refetch failed, return existing cache (will result in key not found)
+			return c.cache, nil
+		}
+
+		// Check if the new cache contains the requested key
+		if _, keyExists := newCache.keysByID[kid]; keyExists {
+			// Update cache only if refetch succeeded and contains the key
+			c.cache.fetchedAt = newCache.fetchedAt
+			c.cache.keysByID = newCache.keysByID
+			c.cache.ttl = newCache.ttl
+		}
+
+		// cache is valid anyway
+		return c.cache, nil
 	}
 
 	// Cache is invalid, fetch fresh JWKS
@@ -344,18 +345,4 @@ func (c *JWKSClient) parseCacheControl(cacheControl string) time.Duration {
 
 	// If Cache-Control header exists but no max-age found, use fallback TTL
 	return c.fallbackTTL
-}
-
-// shouldAttemptRefetchLocked atomically checks if we should attempt to refetch JWKS for unknown key
-// and updates lastRefetchAttempt if true to prevent multiple simultaneous refetches
-// NOTE: This method expects the caller to hold the refetchMutex
-func (c *JWKSClient) shouldAttemptRefetchLocked() bool {
-	c.refetchMutex.Lock()
-	defer c.refetchMutex.Unlock()
-
-	if time.Since(c.lastRefetchAttempt) >= c.refetchMinInterval {
-		c.lastRefetchAttempt = time.Now()
-		return true
-	}
-	return false
 }
