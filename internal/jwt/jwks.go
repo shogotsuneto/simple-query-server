@@ -94,8 +94,24 @@ func (c *JWKSClient) fetchJWKSWithCache(kid string) (*JWKSCache, error) {
 		if kid != "" {
 			if _, exists := c.cache.keysByID[kid]; !exists {
 				if c.shouldAttemptRefetchLocked() {
-					// Invalidate cache to force refetch
-					c.cache.fetchedAt = time.Time{}
+					// Attempt to refetch without invalidating existing cache
+					newCache, err := c.fetchJWKSFromServer()
+					if err != nil {
+						// Refetch failed, return existing cache (will result in key not found)
+						return c.cache, nil
+					}
+
+					// Check if the new cache contains the requested key
+					if _, keyExists := newCache.keysByID[kid]; keyExists {
+						// Update cache only if refetch succeeded and contains the key
+						c.cache.fetchedAt = newCache.fetchedAt
+						c.cache.keysByID = newCache.keysByID
+						c.cache.ttl = newCache.ttl
+						return c.cache, nil
+					}
+
+					// Key still not found in new fetch, return existing cache
+					return c.cache, nil
 				} else {
 					// Rate limited, return current cache
 					return c.cache, nil
@@ -110,7 +126,22 @@ func (c *JWKSClient) fetchJWKSWithCache(kid string) (*JWKSCache, error) {
 		}
 	}
 
-	// Fetch fresh JWKS
+	// Cache is invalid, fetch fresh JWKS
+	newCache, err := c.fetchJWKSFromServer()
+	if err != nil {
+		return nil, err
+	}
+
+	// Update cache
+	c.cache.fetchedAt = newCache.fetchedAt
+	c.cache.keysByID = newCache.keysByID
+	c.cache.ttl = newCache.ttl
+
+	return c.cache, nil
+}
+
+// fetchJWKSFromServer fetches JWKS from the server and returns a new cache without updating the existing one
+func (c *JWKSClient) fetchJWKSFromServer() (*JWKSCache, error) {
 	response, err := c.httpClient.Get(c.jwksURL)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch JWKS from %s: %w", c.jwksURL, err)
@@ -148,12 +179,12 @@ func (c *JWKSClient) fetchJWKSWithCache(kid string) (*JWKSCache, error) {
 		}
 	}
 
-	// Update cache
-	c.cache.fetchedAt = time.Now()
-	c.cache.keysByID = keysByID
-	c.cache.ttl = cacheTTL
-
-	return c.cache, nil
+	// Return new cache without updating the existing one
+	return &JWKSCache{
+		fetchedAt: time.Now(),
+		keysByID:  keysByID,
+		ttl:       cacheTTL,
+	}, nil
 }
 
 // parseRSAKey parses an RSA key from JWK format
