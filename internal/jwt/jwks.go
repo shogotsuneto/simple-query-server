@@ -127,22 +127,7 @@ func (c *JWKSClient) backgroundRefresh() {
 
 	for {
 		// Calculate next refresh time
-		c.cacheMutex.RLock()
-		var waitDuration time.Duration
-
-		if len(c.cache.keysByID) > 0 && c.failureCount == 0 {
-			// We have valid cache and no recent failures, calculate next refresh time (80% of TTL)
-			refreshTime := c.cache.fetchedAt.Add(time.Duration(float64(c.cache.ttl) * 0.8))
-			waitDuration = time.Until(refreshTime)
-			if waitDuration < 0 {
-				waitDuration = 0
-			}
-		} else {
-			// No valid cache or we have recent failures, use exponential backoff with jitter
-			waitDuration = c.calculateBackoffDuration()
-		}
-
-		c.cacheMutex.RUnlock()
+		waitDuration := c.calculateWaitDuration()
 
 		select {
 		case <-c.ctx.Done():
@@ -155,6 +140,25 @@ func (c *JWKSClient) backgroundRefresh() {
 			}
 		}
 	}
+}
+
+// calculateWaitDuration calculates how long to wait before the next refresh
+func (c *JWKSClient) calculateWaitDuration() time.Duration {
+	c.cacheMutex.RLock()
+	defer c.cacheMutex.RUnlock()
+
+	if len(c.cache.keysByID) == 0 || c.failureCount > 0 {
+		// No valid cache available or recent failures, use exponential backoff
+		return c.calculateBackoffDuration()
+	}
+
+	// We have valid cache and no recent failures, calculate next refresh time (80% of TTL)
+	refreshTime := c.cache.fetchedAt.Add(time.Duration(float64(c.cache.ttl) * 0.8))
+	ret := time.Until(refreshTime)
+	if ret < 0 {
+		ret = 0
+	}
+	return ret
 }
 
 // calculateBackoffDuration calculates the wait duration with exponential backoff and jitter
