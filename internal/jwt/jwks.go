@@ -60,7 +60,6 @@ type JWKSClient struct {
 
 	// Exponential backoff for failed refresh attempts
 	failureCount int
-	backoffMutex sync.RWMutex
 }
 
 // NewJWKSClient creates a new JWKS client with configurable fallback TTL
@@ -129,7 +128,6 @@ func (c *JWKSClient) backgroundRefresh() {
 	for {
 		// Calculate next refresh time
 		c.cacheMutex.RLock()
-		c.backoffMutex.RLock()
 		var waitDuration time.Duration
 
 		if len(c.cache.keysByID) > 0 && c.failureCount == 0 {
@@ -144,7 +142,6 @@ func (c *JWKSClient) backgroundRefresh() {
 			waitDuration = c.calculateBackoffDuration()
 		}
 
-		c.backoffMutex.RUnlock()
 		c.cacheMutex.RUnlock()
 
 		select {
@@ -188,18 +185,15 @@ func (c *JWKSClient) performRefresh() {
 		log.Printf("JWKS refresh failed: %v", err)
 
 		// Increment failure count for exponential backoff
-		c.backoffMutex.Lock()
+		c.cacheMutex.Lock()
 		c.failureCount++
-		c.backoffMutex.Unlock()
+		c.cacheMutex.Unlock()
 		return
 	}
 
 	// Success - reset failure count and update cache
-	c.backoffMutex.Lock()
-	c.failureCount = 0
-	c.backoffMutex.Unlock()
-
 	c.cacheMutex.Lock()
+	c.failureCount = 0
 	c.cache.fetchedAt = newCache.fetchedAt
 	c.cache.keysByID = newCache.keysByID
 	c.cache.ttl = newCache.ttl

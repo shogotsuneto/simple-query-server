@@ -337,9 +337,9 @@ func TestJWKSClient_BackoffCalculation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			client.backoffMutex.Lock()
+			client.cacheMutex.Lock()
 			client.failureCount = tt.failureCount
-			client.backoffMutex.Unlock()
+			client.cacheMutex.Unlock()
 
 			duration := client.calculateBackoffDuration()
 
