@@ -21,6 +21,7 @@ middleware:
       jwks_url: "http://localhost:3000/.well-known/jwks.json"  # JWKS endpoint URL
       required: false                                          # Whether auth is mandatory
       cache_ttl: "10m"                                         # Cache JWKS keys for 10 minutes (optional, default: 10m)
+      enable_health_check: true                                # Include JWKS health in server health checks (optional, default: true)
       claims_mapping:                                          # Map JWT claims to SQL parameters
         sub: "user_id"                                         # Map 'sub' claim to 'user_id' parameter
         role: "user_role"                                      # Map 'role' claim to 'user_role' parameter
@@ -65,6 +66,7 @@ Verifies JWT tokens using JWKS endpoints and extracts claims as SQL parameters.
 - `claims_mapping`: Map JWT claims to SQL parameter names (e.g., `{"sub": "user_id", "role": "user_role"}`)
 - `issuer`: Expected JWT issuer for validation (optional)
 - `audience`: Expected JWT audience for validation (optional)
+- `enable_health_check`: Whether to include JWKS health in server health checks (optional, default: true)
 
 **Authentication Modes:**
 - **Optional Authentication**: Set `required: false` to allow requests without tokens
@@ -80,6 +82,98 @@ curl -X POST -H "Authorization: Bearer <jwt_token>" -H "Content-Type: applicatio
 curl -X POST -H "Authorization: Bearer <jwt_token>" -H "Content-Type: application/json" \
      -d '{"category": "public"}' http://localhost:8080/query/search_user_content
 ```
+
+## JWKS Health Check
+
+The JWKS middleware supports health checking as part of the server's overall health status.
+
+### Configuration
+
+Add the `enable_health_check` option to your JWKS middleware configuration:
+
+```yaml
+middleware:
+  - type: "bearer-jwks"
+    config:
+      jwks_url: "https://your-auth-provider.com/.well-known/jwks.json"
+      required: false
+      enable_health_check: true  # Enable health check (default: true)
+      claims_mapping:
+        sub: "user_id"
+        role: "user_role"
+      issuer: "https://your-auth-provider.com"
+      audience: "your-api"
+      fallback_ttl: "10m"
+```
+
+### Health Check Behavior
+
+**When enabled (default):**
+- The server's `/health` endpoint includes middleware status
+- Server is healthy only when JWKS middleware has valid, unexpired keys
+- JWKS middleware is considered healthy if:
+  - Initial JWKS fetch completed successfully
+  - Cache is not expired (current time < fetchedAt + ttl)
+  - Has valid keys available
+
+**When disabled:**
+- JWKS middleware health is ignored in server health checks
+- Server health depends only on database and other components
+- No middleware section appears in health response
+
+### Health Response Format
+
+**With healthy JWKS middleware:**
+```json
+{
+  "status": "healthy",
+  "database": {
+    "connected": true
+  },
+  "middleware": {
+    "bearer-jwks(https://your-auth-provider.com/.well-known/jwks.json)": {
+      "healthy": true
+    }
+  }
+}
+```
+
+**With unhealthy JWKS middleware:**
+```json
+{
+  "status": "unhealthy",
+  "database": {
+    "connected": true
+  },
+  "middleware": {
+    "bearer-jwks(https://your-auth-provider.com/.well-known/jwks.json)": {
+      "healthy": false
+    }
+  }
+}
+```
+
+**With health check disabled:**
+```json
+{
+  "status": "healthy",
+  "database": {
+    "connected": true
+  }
+}
+```
+
+### Use Cases
+
+**Enable health check (default)** when:
+- You want load balancers to route traffic away when JWKS is unavailable
+- Authentication is critical to your application's functionality
+- You need to monitor JWKS endpoint availability
+
+**Disable health check** when:
+- JWKS is optional (authentication not required)
+- You want the server to remain "healthy" even with JWKS issues
+- You prefer to handle JWKS failures gracefully without affecting load balancing
 
 ## How Middleware Works
 
