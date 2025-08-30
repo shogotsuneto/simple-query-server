@@ -44,13 +44,11 @@ type JWK struct {
 
 // JWKSClient manages JWKS fetching and caching
 type JWKSClient struct {
-	jwksURL            string
-	cache              *JWKSCache
-	cacheMutex         sync.RWMutex
-	httpClient         *http.Client
-	fallbackTTL        time.Duration
-	lastRefetchAttempt time.Time
-	refetchMinInterval time.Duration // minimum interval between refetch attempts
+	jwksURL     string
+	cache       *JWKSCache
+	cacheMutex  sync.RWMutex
+	httpClient  *http.Client
+	fallbackTTL time.Duration
 
 	// Background goroutine management
 	ctx         context.Context
@@ -72,12 +70,11 @@ func NewJWKSClient(jwksURL string, fallbackTTL time.Duration) *JWKSClient {
 		httpClient: &http.Client{
 			Timeout: 30 * time.Second,
 		},
-		fallbackTTL:        fallbackTTL,
-		refetchMinInterval: 30 * time.Second, // prevent excessive refetch attempts
-		ctx:                ctx,
-		cancel:             cancel,
-		refreshDone:        make(chan struct{}),
-		initialized:        make(chan struct{}),
+		fallbackTTL: fallbackTTL,
+		ctx:         ctx,
+		cancel:      cancel,
+		refreshDone: make(chan struct{}),
+		initialized: make(chan struct{}),
 	}
 
 	// Start background refresh goroutine

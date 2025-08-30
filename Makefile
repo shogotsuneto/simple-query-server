@@ -59,7 +59,7 @@ fmt-check:
 	@files=$$(gofmt -l .); if [ -n "$$files" ]; then echo "Files need formatting:"; echo "$$files"; exit 1; fi
 
 test:
-	go test ./...
+	go test -count=1 ./...
 
 # Comprehensive build and validation
 all: deps vet fmt-check test build
