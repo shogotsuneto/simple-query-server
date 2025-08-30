@@ -70,36 +70,44 @@ func NewJWKSClient(jwksURL string, fallbackTTL time.Duration) *JWKSClient {
 
 // GetPublicKey retrieves the public key for the given key ID
 func (c *JWKSClient) GetPublicKey(kid string) (*rsa.PublicKey, error) {
-	cache, err := c.fetchJWKSWithCache()
+	cache, err := c.fetchJWKSWithCache(kid)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch JWKS: %w", err)
 	}
 
 	rsaPublicKey, exists := cache.keysByID[kid]
 	if !exists {
-		// Try to refetch JWKS in case new keys were added (with rate limiting)
-		if c.shouldAttemptRefetch() {
-			cache, err = c.refetchJWKS()
-			if err == nil {
-				if rsaPublicKey, exists = cache.keysByID[kid]; exists {
-					return rsaPublicKey, nil
-				}
-			}
-		}
 		return nil, fmt.Errorf("key not found for kid: %s", kid)
 	}
 
 	return rsaPublicKey, nil
 }
 
-// fetchJWKSWithCache fetches JWKS with caching logic
-func (c *JWKSClient) fetchJWKSWithCache() (*JWKSCache, error) {
+// fetchJWKSWithCache fetches JWKS with caching logic and handles refetching for unknown keys
+func (c *JWKSClient) fetchJWKSWithCache(kid string) (*JWKSCache, error) {
 	c.cacheMutex.Lock()
 	defer c.cacheMutex.Unlock()
 
 	// Check if cache is still valid
 	if c.isCacheValid() {
-		return c.cache, nil
+		// If looking for a specific key and it's not in cache, try refetch (with rate limiting)
+		if kid != "" {
+			if _, exists := c.cache.keysByID[kid]; !exists {
+				if c.shouldAttemptRefetchLocked() {
+					// Invalidate cache to force refetch
+					c.cache.fetchedAt = time.Time{}
+				} else {
+					// Rate limited, return current cache
+					return c.cache, nil
+				}
+			} else {
+				// Key found in valid cache
+				return c.cache, nil
+			}
+		} else {
+			// No specific key requested, return valid cache
+			return c.cache, nil
+		}
 	}
 
 	// Fetch fresh JWKS
@@ -307,9 +315,10 @@ func (c *JWKSClient) parseCacheControl(cacheControl string) time.Duration {
 	return c.fallbackTTL
 }
 
-// shouldAttemptRefetch atomically checks if we should attempt to refetch JWKS for unknown key
+// shouldAttemptRefetchLocked atomically checks if we should attempt to refetch JWKS for unknown key
 // and updates lastRefetchAttempt if true to prevent multiple simultaneous refetches
-func (c *JWKSClient) shouldAttemptRefetch() bool {
+// NOTE: This method expects the caller to hold the refetchMutex
+func (c *JWKSClient) shouldAttemptRefetchLocked() bool {
 	c.refetchMutex.Lock()
 	defer c.refetchMutex.Unlock()
 
@@ -318,14 +327,4 @@ func (c *JWKSClient) shouldAttemptRefetch() bool {
 		return true
 	}
 	return false
-}
-
-// refetchJWKS forces a refetch of JWKS (used when key not found)
-func (c *JWKSClient) refetchJWKS() (*JWKSCache, error) {
-	// Force cache invalidation by setting fetchedAt to zero
-	c.cacheMutex.Lock()
-	c.cache.fetchedAt = time.Time{}
-	c.cacheMutex.Unlock()
-
-	return c.fetchJWKSWithCache()
 }
