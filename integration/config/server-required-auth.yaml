@@ -7,7 +7,8 @@ middleware:
     config:
       jwks_url: "http://localhost:3000/.well-known/jwks.json"  # JWKS mock API endpoint
       required: true                                           # Required authentication
-      fallback_ttl: "5m"                                          # Fallback TTL for JWKS when no Cache-Control header (shorter for required auth)
+      enable_health_check: true                                # Enable health check (default behavior)
+      fallback_ttl: "5m"                                       # Fallback TTL for JWKS when no Cache-Control header (shorter for required auth)
       claims_mapping:                                          # Map JWT claims to SQL parameters
         sub: "user_id"                                         # Map 'sub' claim to 'user_id' parameter
         role: "role"                                           # Map 'role' claim to 'role' parameter

@@ -289,7 +289,6 @@ func TestJWKSClient_NoRequestTriggeredRefetch(t *testing.T) {
 // This test is removed as it was testing the old rate limiting behavior for request-triggered refetch
 // The new implementation doesn't have request-triggered refetch, so this test is no longer relevant
 
-// TestJWKSClient_BackoffCalculation tests the exponential backoff calculation logic
 func TestJWKSClient_BackoffCalculation(t *testing.T) {
 	client := NewJWKSClient("http://example.com", 10*time.Minute)
 	defer client.Close()
@@ -353,4 +352,156 @@ func TestJWKSClient_BackoffCalculation(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestJWKSClient_IsHealthy tests the health check functionality
+func TestJWKSClient_IsHealthy(t *testing.T) {
+	t.Run("HealthyWithValidCache", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			mockJWKS := `{
+				"keys": [
+					{
+						"kty": "RSA",
+						"kid": "test-key-1",
+						"use": "sig",
+						"n": "0vx7agoebGcQSuuPiLJXZptN9nndrQmbXEps2aiAFbWhM78LhWx4cbbfAAtVT86zwu1RK7aPFFxuhDR1L6tSoc_BJECPebWKRXjBZCiFV4n3oknjhMstn64tZ_2W-5JsGY4Hc5n9yBXArwl93lqt7_RN5w6Cf0h4QyQ5v-65YGjQR0_FDW2QvzqY368QQMicAtaSqzs8KJZgnYb9c7d0zgdAZHzu6qMQvRL5hajrn1n91CbOpbISzIWzYr_W6UU9dwuW6TU0DjW0nQcaOLGOjQhGnOGKZ9CW7PDNE2J",
+						"e": "AQAB"
+					}
+				]
+			}`
+			w.Header().Set("Content-Type", "application/json")
+			w.Header().Set("Cache-Control", "max-age=3600") // 1 hour TTL
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(mockJWKS))
+		}))
+		defer server.Close()
+
+		client := NewJWKSClient(server.URL, 10*time.Minute)
+		defer client.Close()
+
+		// Before initialization, should be unhealthy
+		if client.IsHealthy() {
+			t.Fatal("Expected unhealthy before initialization")
+		}
+
+		// Wait for initialization
+		client.WaitForInitialization()
+
+		// After successful initialization, should be healthy
+		if !client.IsHealthy() {
+			t.Fatal("Expected healthy after initialization with valid JWKS")
+		}
+	})
+
+	t.Run("UnhealthyWithNoKeys", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// Return JWKS with no keys
+			mockJWKS := `{"keys": []}`
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(mockJWKS))
+		}))
+		defer server.Close()
+
+		client := NewJWKSClient(server.URL, 10*time.Minute)
+		defer client.Close()
+
+		client.WaitForInitialization()
+
+		// Should be unhealthy with no keys
+		if client.IsHealthy() {
+			t.Fatal("Expected unhealthy with no keys")
+		}
+	})
+
+	t.Run("HealthyWithFailuresButValidCache", func(t *testing.T) {
+		requestCount := 0
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			requestCount++
+			if requestCount == 1 {
+				// First request succeeds
+				mockJWKS := `{
+					"keys": [
+						{
+							"kty": "RSA",
+							"kid": "test-key-1",
+							"use": "sig",
+							"n": "0vx7agoebGcQSuuPiLJXZptN9nndrQmbXEps2aiAFbWhM78LhWx4cbbfAAtVT86zwu1RK7aPFFxuhDR1L6tSoc_BJECPebWKRXjBZCiFV4n3oknjhMstn64tZ_2W-5JsGY4Hc5n9yBXArwl93lqt7_RN5w6Cf0h4QyQ5v-65YGjQR0_FDW2QvzqY368QQMicAtaSqzs8KJZgnYb9c7d0zgdAZHzu6qMQvRL5hajrn1n91CbOpbISzIWzYr_W6UU9dwuW6TU0DjW0nQcaOLGOjQhGnOGKZ9CW7PDNE2J",
+							"e": "AQAB"
+						}
+					]
+				}`
+				w.Header().Set("Content-Type", "application/json")
+				w.Header().Set("Cache-Control", "max-age=3600") // Long TTL for testing
+				w.WriteHeader(http.StatusOK)
+				w.Write([]byte(mockJWKS))
+			} else {
+				// Subsequent requests fail
+				w.WriteHeader(http.StatusInternalServerError)
+			}
+		}))
+		defer server.Close()
+
+		client := NewJWKSClient(server.URL, 1*time.Hour) // Long TTL
+		defer client.Close()
+
+		client.WaitForInitialization()
+
+		// Should be healthy initially
+		if !client.IsHealthy() {
+			t.Fatal("Expected healthy after successful initialization")
+		}
+
+		// Simulate a failed refresh by manually incrementing failure count
+		client.cacheMutex.Lock()
+		client.failureCount = 1
+		client.cacheMutex.Unlock()
+
+		// Should still be healthy because cache is valid, even with failures
+		// Failure count doesn't matter if cache is still valid - refetch is scheduled before expiry
+		if !client.IsHealthy() {
+			t.Fatal("Expected healthy with failure count > 0 but valid cache")
+		}
+	})
+
+	t.Run("UnhealthyWithExpiredCache", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			mockJWKS := `{
+				"keys": [
+					{
+						"kty": "RSA",
+						"kid": "test-key-1",
+						"use": "sig",
+						"n": "0vx7agoebGcQSuuPiLJXZptN9nndrQmbXEps2aiAFbWhM78LhWx4cbbfAAtVT86zwu1RK7aPFFxuhDR1L6tSoc_BJECPebWKRXjBZCiFV4n3oknjhMstn64tZ_2W-5JsGY4Hc5n9yBXArwl93lqt7_RN5w6Cf0h4QyQ5v-65YGjQR0_FDW2QvzqY368QQMicAtaSqzs8KJZgnYb9c7d0zgdAZHzu6qMQvRL5hajrn1n91CbOpbISzIWzYr_W6UU9dwuW6TU0DjW0nQcaOLGOjQhGnOGKZ9CW7PDNE2J",
+						"e": "AQAB"
+					}
+				]
+			}`
+			w.Header().Set("Content-Type", "application/json")
+			w.Header().Set("Cache-Control", "max-age=1") // 1 second TTL
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(mockJWKS))
+		}))
+		defer server.Close()
+
+		client := NewJWKSClient(server.URL, 1*time.Second)
+		defer client.Close()
+
+		client.WaitForInitialization()
+
+		// Should be healthy initially
+		if !client.IsHealthy() {
+			t.Fatal("Expected healthy after initialization")
+		}
+
+		// Manually set an expired cache time (simulate expired cache without waiting)
+		client.cacheMutex.Lock()
+		client.cache.fetchedAt = time.Now().Add(-2 * time.Second) // 2 seconds ago
+		client.cacheMutex.Unlock()
+
+		// Should now be unhealthy due to expired cache
+		if client.IsHealthy() {
+			t.Fatal("Expected unhealthy with expired cache")
+		}
+	})
 }
