@@ -6,8 +6,11 @@ A lightweight Go server with YAML-based configuration for database connections a
 
 The `simple-query-server` allows you to define database queries in YAML configuration files and expose them as HTTP REST endpoints. This provides a simple way to create database APIs without writing custom code for each query.
 
+**READ-ONLY OPERATIONS**: This project supports only SELECT (read) operations. No INSERT, UPDATE, DELETE, or other write operations are supported.
+
 ## Features
 
+- **READ-ONLY Database Access**: Supports only SELECT queries for safe, read-only database operations
 - **YAML Configuration**: Define database connections and queries in separate YAML files
 - **HTTP API**: Execute queries via REST endpoints with JSON payloads
 - **Parameter Validation**: Automatic validation of query parameters
@@ -17,38 +20,6 @@ The `simple-query-server` allows you to define database queries in YAML configur
 - **Middleware System**: Configurable middleware for authentication and parameter injection
 - **Docker Integration**: Complete PostgreSQL setup with docker-compose
 - **Command Line Interface**: Flexible configuration via CLI flags
-
-## Project Structure
-
-```
-simple-query-server/
-├── cmd/
-│   └── server/
-│       └── main.go           # Main entry point
-├── example/
-│   ├── database.yaml         # Example database configuration (PostgreSQL)
-│   ├── queries.yaml          # Example queries configuration
-│   └── sql/
-│       ├── schema.sql        # Database schema (tables, indexes, functions)
-│       └── data.sql          # Sample data for testing
-├── internal/
-│   ├── config/
-│   │   └── loader.go         # YAML configuration loading
-│   ├── db/
-│   │   └── connection.go     # PostgreSQL connection management with background retry
-│   ├── query/
-│   │   └── executor.go       # Query execution engine (PostgreSQL)
-│   └── server/
-│       └── http.go           # HTTP server and routing
-├── testdata/
-│   ├── database.yaml         # Test database configuration
-│   └── queries.yaml          # Test queries configuration
-├── docker-compose.yml        # PostgreSQL database setup
-├── MIDDLEWARE.md             # Middleware configuration and usage documentation
-├── go.mod
-├── go.sum
-└── README.md
-```
 
 ## Installation and Build
 
@@ -95,23 +66,9 @@ The server requires two YAML configuration files to run:
 
 ### Database Configuration (`database.yaml`)
 
-For PostgreSQL (recommended):
-
 ```yaml
 type: "postgres"
 dsn: "postgres://queryuser:querypass@localhost:5432/queryserver?sslmode=disable"
-```
-
-For other databases (future support):
-
-```yaml
-# MySQL (not yet implemented)
-type: "mysql" 
-dsn: "username:password@tcp(localhost:3306)/database_name"
-
-# SQLite (not yet implemented)
-type: "sqlite"
-dsn: "./data.db"
 ```
 
 **Note**: Currently only PostgreSQL is supported. The server starts successfully even when the database is unavailable, with background connection management and automatic reconnection.
@@ -292,27 +249,17 @@ See [integration/README.md](integration/README.md) for detailed integration test
 ## Development Status
 
 **Current Implementation:**
-- ✅ YAML configuration loading and validation
-- ✅ HTTP server with REST API endpoints
-- ✅ Parameter validation and type checking
-- ✅ **PostgreSQL database connection and query execution**
-- ✅ **Background connection management with automatic retry**
-- ✅ **Health monitoring with meaningful database status reporting**
-- ✅ **SQL parameter binding with :param syntax**
-- ✅ **Middleware system with HTTP header and JWT/JWKS authentication**
-- ✅ **Docker Compose setup with sample database**
-- ✅ Command-line interface with flags
-- ✅ Error handling and logging
-- ✅ **Integration tests with real databases**
+- ✅ PostgreSQL database support with background connection management
+- ✅ YAML-based configuration for database connections and queries  
+- ✅ REST API endpoints with parameter validation
+- ✅ Middleware system with HTTP header and JWT/JWKS authentication
+- ✅ Docker integration and integration tests
 
-**TODO (for production use):**
+**Future Enhancements:**
 - [ ] MySQL and SQLite database support
 - [ ] Database connection pooling configuration
 - [ ] Query result caching
-- [ ] OAuth 2.0 introspection endpoint support
-- [ ] Rate limiting middleware
-- [ ] Request logging middleware
-- [ ] Custom middleware plugin system
+- [ ] Rate limiting and request logging middleware
 - [ ] Metrics and monitoring
 
 ## Contributing
