@@ -20,7 +20,7 @@ middleware:
     config:
       jwks_url: "http://localhost:3000/.well-known/jwks.json"  # JWKS endpoint URL
       required: false                                          # Whether auth is mandatory
-      cache_ttl: "10m"                                         # Cache JWKS keys for 10 minutes (optional, default: 10m)
+      fallback_ttl: "10m"                                      # Fallback TTL for JWKS when no Cache-Control header (optional, default: 10m)
       enable_health_check: true                                # Include JWKS health in server health checks (optional, default: true)
       claims_mapping:                                          # Map JWT claims to SQL parameters
         sub: "user_id"                                         # Map 'sub' claim to 'user_id' parameter
@@ -62,11 +62,17 @@ Verifies JWT tokens using JWKS endpoints and extracts claims as SQL parameters.
 **Configuration:**
 - `jwks_url`: URL to fetch JWKS from (e.g., `http://localhost:3000/.well-known/jwks.json`)
 - `required`: Whether authentication is mandatory (if true, returns 401 Unauthorized when missing/invalid)
-- `cache_ttl`: How long to cache JWKS keys (default: 10 minutes)
+- `fallback_ttl`: Fallback TTL for JWKS when no Cache-Control header is provided (default: 10 minutes)
 - `claims_mapping`: Map JWT claims to SQL parameter names (e.g., `{"sub": "user_id", "role": "user_role"}`)
 - `issuer`: Expected JWT issuer for validation (optional)
 - `audience`: Expected JWT audience for validation (optional)
 - `enable_health_check`: Whether to include JWKS health in server health checks (optional, default: true)
+
+**JWKS Caching Behavior:**
+- JWKS keys are cached with automatic background refresh
+- Cache TTL is determined by the Cache-Control header from the JWKS endpoint (takes precedence)
+- If no Cache-Control header is present, the `fallback_ttl` setting is used
+- Background refresh happens at 80% of the TTL to ensure keys are always available
 
 **Authentication Modes:**
 - **Optional Authentication**: Set `required: false` to allow requests without tokens
@@ -183,9 +189,7 @@ middleware:
 4. Merged parameters are validated against query parameter definitions
 5. Query is executed with the combined parameter set
 
-## Chaining Multiple Middleware
-
-Multiple middleware can be configured together:
+**Multiple middleware can be configured together:**
 
 ```bash
 # Request with both header and JWT middleware
@@ -233,11 +237,13 @@ To use middleware, provide the server configuration file when starting the serve
 
 ## Caching and Performance
 
-The JWT/JWKS middleware includes intelligent caching:
+The JWT/JWKS middleware includes intelligent caching with Cache-Control header support:
 
-- **JWKS Key Caching**: Public keys are cached with configurable TTL (default: 10 minutes)
-- **Thread-Safe**: Cache operations are protected with mutexes
-- **Automatic Invalidation**: Keys are refreshed when the cache expires
+- **Cache-Control Header Precedence**: TTL is determined by the Cache-Control max-age directive from the JWKS endpoint response
+- **Fallback TTL**: When no Cache-Control header is present, the configured `fallback_ttl` is used (default: 10 minutes)  
+- **Background Refresh**: Keys are automatically refreshed at 80% of the TTL to ensure availability
+- **Thread-Safe Operations**: All cache operations are protected with mutexes for concurrent access
+- **Exponential Backoff**: Failed refresh attempts use exponential backoff with jitter
 - **Multiple Key Formats**: Supports both X.509 certificates and modulus/exponent formats
 
-This reduces external JWKS requests and improves performance for high-traffic applications.
+This design reduces external JWKS requests and provides high availability for authentication-dependent applications.
