@@ -88,7 +88,29 @@ queries:
     params:
       - name: name
         type: string
+
+  # Query using middleware-injected parameters (from JWT claims, HTTP headers, etc.)
+  get_current_user:
+    sql: "SELECT id, name, email FROM users WHERE id = :user_id"
+    params: []  # No body parameters required
+    middleware_params:
+      - name: user_id
+        type: string
+
+  # Query combining body parameters with middleware parameters
+  get_user_by_tenant:
+    sql: "SELECT id, name, email FROM users WHERE id = :id AND tenant_id = :tenant_id"
+    params:
+      - name: id
+        type: int
+    middleware_params:
+      - name: tenant_id
+        type: string
 ```
+
+**Parameter Types:**
+- `params`: Parameters provided in the request body (JSON)
+- `middleware_params`: Parameters automatically injected by middleware (JWT claims, HTTP headers, etc.)
 
 ### Middleware Configuration
 
