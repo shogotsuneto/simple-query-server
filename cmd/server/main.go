@@ -20,6 +20,7 @@ func main() {
 		queriesConfigPath = flag.String("queries-config", "", "Path to queries configuration YAML file")
 		serverConfigPath  = flag.String("server-config", "", "Path to server configuration YAML file (optional)")
 		port              = flag.String("port", "8080", "Port to run the server on")
+		openapiEnabled    = flag.Bool("openapi-enabled", false, "Enable OpenAPI spec generation and hosting")
 		help              = flag.Bool("help", false, "Show help message")
 	)
 	flag.Parse()
@@ -77,7 +78,7 @@ func main() {
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 
 	// Start HTTP server
-	srv, err := server.New(dbConfig, queriesConfig, serverConfig)
+	srv, err := server.New(dbConfig, queriesConfig, serverConfig, *openapiEnabled)
 	if err != nil {
 		log.Fatalf("Failed to create server: %v", err)
 	}

@@ -11,6 +11,7 @@ import (
 
 	"github.com/shogotsuneto/simple-query-server/internal/config"
 	"github.com/shogotsuneto/simple-query-server/internal/middleware"
+	"github.com/shogotsuneto/simple-query-server/internal/openapi"
 	"github.com/shogotsuneto/simple-query-server/internal/query"
 )
 
@@ -22,6 +23,8 @@ type Server struct {
 	executor        query.QueryExecutor
 	httpServer      *http.Server
 	done            chan struct{}
+	openapiEnabled  bool
+	openapiSpec     string
 }
 
 // Response represents the JSON response structure
@@ -31,7 +34,7 @@ type Response struct {
 }
 
 // New creates a new Server instance
-func New(dbConfig *config.DatabaseConfig, queriesConfig *config.QueriesConfig, serverConfig *config.ServerConfig) (*Server, error) {
+func New(dbConfig *config.DatabaseConfig, queriesConfig *config.QueriesConfig, serverConfig *config.ServerConfig, openapiEnabled bool) (*Server, error) {
 	executor, err := query.NewQueryExecutor(dbConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create query executor: %w", err)
@@ -43,13 +46,27 @@ func New(dbConfig *config.DatabaseConfig, queriesConfig *config.QueriesConfig, s
 		return nil, fmt.Errorf("failed to create middleware chain: %w", err)
 	}
 
-	return &Server{
+	server := &Server{
 		dbConfig:        dbConfig,
 		queriesConfig:   queriesConfig,
 		middlewareChain: middlewareChain,
 		executor:        executor,
 		done:            make(chan struct{}),
-	}, nil
+		openapiEnabled:  openapiEnabled,
+	}
+
+	// Generate OpenAPI spec if enabled
+	if openapiEnabled {
+		generator := openapi.NewGenerator(dbConfig, queriesConfig, serverConfig, "http://localhost:8080")
+		spec, err := generator.GenerateYAML()
+		if err != nil {
+			return nil, fmt.Errorf("failed to generate OpenAPI spec: %w", err)
+		}
+		server.openapiSpec = spec
+		log.Printf("OpenAPI spec generation enabled")
+	}
+
+	return server, nil
 }
 
 // Start starts the HTTP server on the specified port with graceful shutdown support
@@ -58,6 +75,11 @@ func (s *Server) Start(ctx context.Context, port string) error {
 	mux.HandleFunc("/", s.handleRoot)
 	mux.HandleFunc("/health", s.handleHealth)
 	mux.HandleFunc("/queries", s.handleListQueries)
+
+	// Add OpenAPI endpoint if enabled
+	if s.openapiEnabled {
+		mux.HandleFunc("/openapi.yaml", s.handleOpenAPI)
+	}
 
 	// Wrap the query handler with middleware chain
 	queryHandler := s.middlewareChain.Wrap(s.handleQuery)
@@ -74,6 +96,9 @@ func (s *Server) Start(ctx context.Context, port string) error {
 	log.Printf("  GET  /health       - Health check")
 	log.Printf("  GET  /queries      - List available queries")
 	log.Printf("  POST /query/{name} - Execute a query")
+	if s.openapiEnabled {
+		log.Printf("  GET  /openapi.yaml - OpenAPI specification")
+	}
 
 	// Start server in a goroutine so we can handle shutdown
 	go func() {
@@ -121,14 +146,20 @@ func (s *Server) handleRoot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	endpoints := map[string]string{
+		"/health":       "GET - Health check",
+		"/queries":      "GET - List available queries",
+		"/query/{name}": "POST - Execute a query",
+	}
+
+	if s.openapiEnabled {
+		endpoints["/openapi.yaml"] = "GET - OpenAPI specification"
+	}
+
 	response := map[string]interface{}{
-		"service": "simple-query-server",
-		"status":  "running",
-		"endpoints": map[string]string{
-			"/health":       "GET - Health check",
-			"/queries":      "GET - List available queries",
-			"/query/{name}": "POST - Execute a query",
-		},
+		"service":   "simple-query-server",
+		"status":    "running",
+		"endpoints": endpoints,
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -308,4 +339,16 @@ func (s *Server) filterBodyParametersByYAMLDefinition(queryConfig config.Query, 
 	}
 
 	return filteredParams
+}
+
+// handleOpenAPI handles requests for the OpenAPI specification
+func (s *Server) handleOpenAPI(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/yaml")
+	w.Header().Set("Cache-Control", "public, max-age=3600") // Cache for 1 hour
+	w.Write([]byte(s.openapiSpec))
 }
