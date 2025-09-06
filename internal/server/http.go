@@ -34,7 +34,7 @@ type Response struct {
 }
 
 // New creates a new Server instance
-func New(dbConfig *config.DatabaseConfig, queriesConfig *config.QueriesConfig, serverConfig *config.ServerConfig, openapiEnabled bool) (*Server, error) {
+func New(dbConfig *config.DatabaseConfig, queriesConfig *config.QueriesConfig, serverConfig *config.ServerConfig) (*Server, error) {
 	executor, err := query.NewQueryExecutor(dbConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create query executor: %w", err)
@@ -44,6 +44,12 @@ func New(dbConfig *config.DatabaseConfig, queriesConfig *config.QueriesConfig, s
 	middlewareChain, err := middleware.CreateMiddlewareChain(serverConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create middleware chain: %w", err)
+	}
+
+	// Determine if OpenAPI is enabled
+	openapiEnabled := false
+	if serverConfig != nil && serverConfig.OpenAPI != nil {
+		openapiEnabled = serverConfig.OpenAPI.Enabled
 	}
 
 	server := &Server{

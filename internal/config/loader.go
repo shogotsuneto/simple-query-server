@@ -40,6 +40,12 @@ type MiddlewareConfig struct {
 // ServerConfig represents the server configuration including middleware
 type ServerConfig struct {
 	Middleware []MiddlewareConfig `yaml:"middleware,omitempty"`
+	OpenAPI    *OpenAPIConfig     `yaml:"openapi,omitempty"`
+}
+
+// OpenAPIConfig represents the OpenAPI configuration
+type OpenAPIConfig struct {
+	Enabled bool `yaml:"enabled"`
 }
 
 // LoadDatabaseConfig loads database configuration from a YAML file

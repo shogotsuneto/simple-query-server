@@ -15,3 +15,7 @@ middleware:
       header: "X-Tenant-ID"
       parameter: "tenant_id"
       required: false
+
+# OpenAPI configuration
+openapi:
+  enabled: false               # Set to true to enable OpenAPI spec generation and hosting
