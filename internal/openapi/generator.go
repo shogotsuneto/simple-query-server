@@ -1,6 +1,7 @@
 package openapi
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -76,6 +77,21 @@ func (g *Generator) GenerateYAML() (string, error) {
 	}
 
 	return string(yamlData), nil
+}
+
+// GenerateJSON generates the OpenAPI spec as JSON string
+func (g *Generator) GenerateJSON() (string, error) {
+	spec, err := g.GenerateSpec()
+	if err != nil {
+		return "", err
+	}
+
+	jsonData, err := json.MarshalIndent(spec, "", "  ")
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal OpenAPI spec to JSON: %w", err)
+	}
+
+	return string(jsonData), nil
 }
 
 // addStandardEndpoints adds the standard server endpoints

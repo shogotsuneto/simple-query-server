@@ -17,14 +17,14 @@ import (
 
 // Server represents the HTTP server
 type Server struct {
-	dbConfig        *config.DatabaseConfig
-	queriesConfig   *config.QueriesConfig
-	middlewareChain middleware.Chain
-	executor        query.QueryExecutor
-	httpServer      *http.Server
-	done            chan struct{}
-	openapiEnabled  bool
-	openapiSpec     string
+	dbConfig         *config.DatabaseConfig
+	queriesConfig    *config.QueriesConfig
+	middlewareChain  middleware.Chain
+	executor         query.QueryExecutor
+	httpServer       *http.Server
+	done             chan struct{}
+	openapiEnabled   bool
+	openapiGenerator *openapi.Generator
 }
 
 // Response represents the JSON response structure
@@ -64,11 +64,7 @@ func New(dbConfig *config.DatabaseConfig, queriesConfig *config.QueriesConfig, s
 	// Generate OpenAPI spec if enabled
 	if openapiEnabled {
 		generator := openapi.NewGenerator(dbConfig, queriesConfig, serverConfig, "http://localhost:8080")
-		spec, err := generator.GenerateYAML()
-		if err != nil {
-			return nil, fmt.Errorf("failed to generate OpenAPI spec: %w", err)
-		}
-		server.openapiSpec = spec
+		server.openapiGenerator = generator
 		log.Printf("OpenAPI spec generation enabled")
 	}
 
@@ -82,9 +78,10 @@ func (s *Server) Start(ctx context.Context, port string) error {
 	mux.HandleFunc("/health", s.handleHealth)
 	mux.HandleFunc("/queries", s.handleListQueries)
 
-	// Add OpenAPI endpoint if enabled
+	// Add OpenAPI endpoints if enabled
 	if s.openapiEnabled {
-		mux.HandleFunc("/openapi.yaml", s.handleOpenAPI)
+		mux.HandleFunc("/openapi.yaml", s.handleOpenAPIYAML)
+		mux.HandleFunc("/openapi.json", s.handleOpenAPIJSON)
 	}
 
 	// Wrap the query handler with middleware chain
@@ -103,7 +100,8 @@ func (s *Server) Start(ctx context.Context, port string) error {
 	log.Printf("  GET  /queries      - List available queries")
 	log.Printf("  POST /query/{name} - Execute a query")
 	if s.openapiEnabled {
-		log.Printf("  GET  /openapi.yaml - OpenAPI specification")
+		log.Printf("  GET  /openapi.yaml - OpenAPI specification (YAML)")
+		log.Printf("  GET  /openapi.json - OpenAPI specification (JSON)")
 	}
 
 	// Start server in a goroutine so we can handle shutdown
@@ -159,7 +157,8 @@ func (s *Server) handleRoot(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if s.openapiEnabled {
-		endpoints["/openapi.yaml"] = "GET - OpenAPI specification"
+		endpoints["/openapi.yaml"] = "GET - OpenAPI specification (YAML)"
+		endpoints["/openapi.json"] = "GET - OpenAPI specification (JSON)"
 	}
 
 	response := map[string]interface{}{
@@ -347,14 +346,40 @@ func (s *Server) filterBodyParametersByYAMLDefinition(queryConfig config.Query, 
 	return filteredParams
 }
 
-// handleOpenAPI handles requests for the OpenAPI specification
-func (s *Server) handleOpenAPI(w http.ResponseWriter, r *http.Request) {
+// handleOpenAPIYAML handles requests for the OpenAPI specification in YAML format
+func (s *Server) handleOpenAPIYAML(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
+	spec, err := s.openapiGenerator.GenerateYAML()
+	if err != nil {
+		log.Printf("Failed to generate OpenAPI YAML: %v", err)
+		http.Error(w, "Failed to generate OpenAPI specification", http.StatusInternalServerError)
+		return
+	}
+
 	w.Header().Set("Content-Type", "application/yaml")
 	w.Header().Set("Cache-Control", "public, max-age=3600") // Cache for 1 hour
-	w.Write([]byte(s.openapiSpec))
+	w.Write([]byte(spec))
+}
+
+// handleOpenAPIJSON handles requests for the OpenAPI specification in JSON format
+func (s *Server) handleOpenAPIJSON(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	spec, err := s.openapiGenerator.GenerateJSON()
+	if err != nil {
+		log.Printf("Failed to generate OpenAPI JSON: %v", err)
+		http.Error(w, "Failed to generate OpenAPI specification", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "public, max-age=3600") // Cache for 1 hour
+	w.Write([]byte(spec))
 }
