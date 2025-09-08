@@ -18,6 +18,7 @@ The `simple-query-server` allows you to define database queries in YAML configur
 - **Background Connection Management**: Server starts successfully even when database is unavailable
 - **Automatic Reconnection**: Exponential backoff retry mechanism with health monitoring
 - **Middleware System**: Configurable middleware for authentication and parameter injection
+- **OpenAPI Documentation**: Optional OpenAPI 3.0.3 specification generation and hosting
 - **Docker Integration**: Complete PostgreSQL setup with docker-compose
 - **Command Line Interface**: Flexible configuration via CLI flags
 
@@ -116,6 +117,36 @@ queries:
 
 The server supports optional middleware for request processing, authentication, and parameter injection. See [MIDDLEWARE.md](MIDDLEWARE.md) for detailed configuration and usage documentation.
 
+### Server Configuration
+
+The server configuration file (`server.yaml`) is optional and allows you to configure middleware and additional server features.
+
+Example server configuration:
+
+```yaml
+# Middleware configuration (optional)
+middleware:
+  - type: "http-header"
+    config:
+      header: "X-User-ID"
+      parameter: "user_id" 
+      required: false
+
+# OpenAPI configuration (optional)
+openapi:
+  enabled: false               # Set to true to enable OpenAPI spec generation and hosting
+```
+
+**Available configurations:**
+- `middleware`: Array of middleware configurations for authentication and parameter injection
+- `openapi.enabled`: Boolean flag to enable/disable OpenAPI specification generation and hosting (default: false)
+
+When OpenAPI is enabled, the server will:
+- Generate a comprehensive OpenAPI 3.0.3 specification from your query configurations
+- Serve the specification at `GET /openapi.yaml`
+- Include security schemes based on configured middleware
+- Provide complete API documentation for all endpoints
+
 ## Usage
 
 ### Starting the Server
@@ -142,7 +173,7 @@ make run-test # Uses test configuration on port 8081
 **Options:**
 - `--db-config`: Path to database configuration YAML file (required)
 - `--queries-config`: Path to queries configuration YAML file (required)  
-- `--server-config`: Path to server configuration YAML file (optional, for middleware)
+- `--server-config`: Path to server configuration YAML file (optional, for middleware and OpenAPI)
 - `--port`: Port to run the server on (default: 8080)
 - `--help`: Show help message
 
@@ -175,6 +206,18 @@ Content-Type: application/json
   "param2": "value2"
 }
 ```
+
+#### OpenAPI Specification (when enabled)
+```bash
+GET /openapi.yaml
+```
+
+Returns the OpenAPI 3.0.3 specification in YAML format. This endpoint is only available when `openapi.enabled: true` is set in the server configuration.
+
+The generated specification includes:
+- All query endpoints with parameter schemas
+- Security schemes based on configured middleware
+- Complete request/response documentation
 
 ### Example API Calls
 
@@ -209,6 +252,11 @@ Content-Type: application/json
 5. **Comprehensive API testing**:
    ```bash
    make api-test
+   ```
+
+6. **Get OpenAPI specification** (when enabled):
+   ```bash
+   curl http://localhost:8080/openapi.yaml
    ```
 
 ### Response Format

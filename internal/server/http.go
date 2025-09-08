@@ -11,17 +11,20 @@ import (
 
 	"github.com/shogotsuneto/simple-query-server/internal/config"
 	"github.com/shogotsuneto/simple-query-server/internal/middleware"
+	"github.com/shogotsuneto/simple-query-server/internal/openapi"
 	"github.com/shogotsuneto/simple-query-server/internal/query"
 )
 
 // Server represents the HTTP server
 type Server struct {
-	dbConfig        *config.DatabaseConfig
-	queriesConfig   *config.QueriesConfig
-	middlewareChain middleware.Chain
-	executor        query.QueryExecutor
-	httpServer      *http.Server
-	done            chan struct{}
+	dbConfig         *config.DatabaseConfig
+	queriesConfig    *config.QueriesConfig
+	middlewareChain  middleware.Chain
+	executor         query.QueryExecutor
+	httpServer       *http.Server
+	done             chan struct{}
+	openapiEnabled   bool
+	openapiGenerator *openapi.Generator
 }
 
 // Response represents the JSON response structure
@@ -43,13 +46,29 @@ func New(dbConfig *config.DatabaseConfig, queriesConfig *config.QueriesConfig, s
 		return nil, fmt.Errorf("failed to create middleware chain: %w", err)
 	}
 
-	return &Server{
+	// Determine if OpenAPI is enabled
+	openapiEnabled := false
+	if serverConfig != nil && serverConfig.OpenAPI != nil {
+		openapiEnabled = serverConfig.OpenAPI.Enabled
+	}
+
+	server := &Server{
 		dbConfig:        dbConfig,
 		queriesConfig:   queriesConfig,
 		middlewareChain: middlewareChain,
 		executor:        executor,
 		done:            make(chan struct{}),
-	}, nil
+		openapiEnabled:  openapiEnabled,
+	}
+
+	// Generate OpenAPI spec if enabled
+	if openapiEnabled {
+		generator := openapi.NewGenerator(dbConfig, queriesConfig, serverConfig, "http://localhost:8080")
+		server.openapiGenerator = generator
+		log.Printf("OpenAPI spec generation enabled")
+	}
+
+	return server, nil
 }
 
 // Start starts the HTTP server on the specified port with graceful shutdown support
@@ -58,6 +77,12 @@ func (s *Server) Start(ctx context.Context, port string) error {
 	mux.HandleFunc("/", s.handleRoot)
 	mux.HandleFunc("/health", s.handleHealth)
 	mux.HandleFunc("/queries", s.handleListQueries)
+
+	// Add OpenAPI endpoints if enabled
+	if s.openapiEnabled {
+		mux.HandleFunc("/openapi.yaml", s.handleOpenAPIYAML)
+		mux.HandleFunc("/openapi.json", s.handleOpenAPIJSON)
+	}
 
 	// Wrap the query handler with middleware chain
 	queryHandler := s.middlewareChain.Wrap(s.handleQuery)
@@ -74,6 +99,10 @@ func (s *Server) Start(ctx context.Context, port string) error {
 	log.Printf("  GET  /health       - Health check")
 	log.Printf("  GET  /queries      - List available queries")
 	log.Printf("  POST /query/{name} - Execute a query")
+	if s.openapiEnabled {
+		log.Printf("  GET  /openapi.yaml - OpenAPI specification (YAML)")
+		log.Printf("  GET  /openapi.json - OpenAPI specification (JSON)")
+	}
 
 	// Start server in a goroutine so we can handle shutdown
 	go func() {
@@ -121,14 +150,21 @@ func (s *Server) handleRoot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	endpoints := map[string]string{
+		"/health":       "GET - Health check",
+		"/queries":      "GET - List available queries",
+		"/query/{name}": "POST - Execute a query",
+	}
+
+	if s.openapiEnabled {
+		endpoints["/openapi.yaml"] = "GET - OpenAPI specification (YAML)"
+		endpoints["/openapi.json"] = "GET - OpenAPI specification (JSON)"
+	}
+
 	response := map[string]interface{}{
-		"service": "simple-query-server",
-		"status":  "running",
-		"endpoints": map[string]string{
-			"/health":       "GET - Health check",
-			"/queries":      "GET - List available queries",
-			"/query/{name}": "POST - Execute a query",
-		},
+		"service":   "simple-query-server",
+		"status":    "running",
+		"endpoints": endpoints,
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -308,4 +344,42 @@ func (s *Server) filterBodyParametersByYAMLDefinition(queryConfig config.Query, 
 	}
 
 	return filteredParams
+}
+
+// handleOpenAPIYAML handles requests for the OpenAPI specification in YAML format
+func (s *Server) handleOpenAPIYAML(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	spec, err := s.openapiGenerator.GenerateYAML()
+	if err != nil {
+		log.Printf("Failed to generate OpenAPI YAML: %v", err)
+		http.Error(w, "Failed to generate OpenAPI specification", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/yaml")
+	w.Header().Set("Cache-Control", "public, max-age=3600") // Cache for 1 hour
+	w.Write([]byte(spec))
+}
+
+// handleOpenAPIJSON handles requests for the OpenAPI specification in JSON format
+func (s *Server) handleOpenAPIJSON(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	spec, err := s.openapiGenerator.GenerateJSON()
+	if err != nil {
+		log.Printf("Failed to generate OpenAPI JSON: %v", err)
+		http.Error(w, "Failed to generate OpenAPI specification", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "public, max-age=3600") // Cache for 1 hour
+	w.Write([]byte(spec))
 }
